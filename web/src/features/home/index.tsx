@@ -20,13 +20,12 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
-import { Footer } from '@/components/layout/components/footer'
 import { RichContent } from '@/components/rich-content'
 import { useTheme } from '@/context/theme-provider'
 import { isLikelyHtml } from '@/lib/content-format'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { CTA, Features, Hero, HowItWorks } from './components'
+import { Features, Hero, HowItWorks } from './components'
 import { useHomePageContent } from './hooks'
 
 export function Home() {
@@ -125,8 +124,6 @@ export function Home() {
       <Hero isAuthenticated={isAuthenticated} />
       <Features />
       <HowItWorks />
-      <CTA isAuthenticated={isAuthenticated} />
-      <Footer />
     </PublicLayout>
   )
 }
