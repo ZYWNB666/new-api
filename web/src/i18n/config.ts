@@ -20,6 +20,8 @@ import i18n from 'i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
 import { initReactI18next } from 'react-i18next'
 
+import { sanitizeLegacyBrandText } from '@/lib/constants'
+
 import { convertDetectedLanguage } from './languages'
 import en from './locales/en.json'
 import fr from './locales/fr.json'
@@ -40,6 +42,11 @@ export const resources = {
 } as const
 
 i18n
+  .use({
+    type: 'postProcessor',
+    name: 'publicBrandSanitizer',
+    process: (value: string) => sanitizeLegacyBrandText(value),
+  })
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
@@ -48,6 +55,7 @@ i18n
     supportedLngs: ['en', 'zhCN', 'fr', 'ru', 'ja', 'vi', 'zhTW'],
     load: 'currentOnly',
     nsSeparator: false, // Allow literal colons in keys (e.g., URLs, labels)
+    postProcess: ['publicBrandSanitizer'],
     debug: import.meta.env.DEV,
     interpolation: {
       escapeValue: false, // not needed for react as it escapes by default

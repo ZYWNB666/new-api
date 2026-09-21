@@ -37,7 +37,10 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
   return (
     <LayoutProvider>
       <SearchProvider>
-        <SidebarProvider defaultOpen={defaultOpen} className='flex-col'>
+        <SidebarProvider
+          defaultOpen={defaultOpen}
+          className='flex-col bg-[var(--shell-canvas)]'
+        >
           <SkipToMain />
           <AppHeader />
           <div className='flex min-h-0 w-full flex-1'>
@@ -47,6 +50,10 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
                 '@container/content',
                 'h-[calc(100svh-var(--app-header-height,0px))]',
                 'min-h-0 overflow-hidden',
+                'bg-[var(--shell-workspace)]',
+                'md:peer-data-[variant=inset]:rounded-[1.5rem]',
+                'md:peer-data-[variant=inset]:border md:peer-data-[variant=inset]:border-border/80',
+                'md:peer-data-[variant=inset]:shadow-[0_12px_34px_-24px_rgba(15,23,42,0.28)]',
                 'peer-data-[variant=inset]:h-[calc(100svh-var(--app-header-height,0px)-(var(--spacing)*4))]'
               )}
             >

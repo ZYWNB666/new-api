@@ -2670,6 +2670,7 @@
     "Function calling": "Gọi hàm",
     "Functions": "Hàm",
     "Gateways": "Cổng kết nối",
+    "AI Gateway": "Cổng AI",
     "GC Count": "Số lần GC",
     "GC executed": "GC đã thực thi",
     "GC execution failed": "Thực thi GC thất bại",

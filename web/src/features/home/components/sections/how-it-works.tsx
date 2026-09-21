@@ -67,7 +67,7 @@ export function HowItWorks() {
               key={step.num}
               delay={i * 150}
               animation='fade-up'
-              className='relative flex flex-col items-center text-center'
+              className='landing-motion-card border-border/50 bg-background/70 relative flex flex-col items-center rounded-3xl border px-6 py-8 text-center shadow-xs'
             >
               <div className='relative mb-6'>
                 <div className='text-muted-foreground border-border/50 bg-muted/30 flex size-16 items-center justify-center rounded-2xl border transition-colors'>

@@ -22,8 +22,9 @@ import { StrictMode } from 'react'
 import ReactDOM from 'react-dom/client'
 
 import { installBuildMetadata } from '@/lib/build-metadata'
-import { applyFaviconToDom } from '@/lib/dom-utils'
+import { getPublicSystemName } from '@/lib/constants'
 import '@/lib/dayjs'
+import { applyFaviconToDom } from '@/lib/dom-utils'
 import { initializeFrontendCache } from '@/lib/frontend-cache'
 import { createAppQueryClient } from '@/lib/query-client'
 import { readCachedStatus, statusQueryOptions } from '@/lib/status-query'
@@ -71,12 +72,13 @@ if (!rootElement) {
 ;(function initSystemBranding() {
   try {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
-    const apply = (name: string) => {
-      document.title = name
+    const apply = (name?: string | null) => {
+      const publicName = getPublicSystemName(name)
+      document.title = publicName
       const metaTitle = document.querySelector(
         'meta[name="title"]'
       ) as HTMLMetaElement | null
-      if (metaTitle) metaTitle.setAttribute('content', name)
+      if (metaTitle) metaTitle.setAttribute('content', publicName)
     }
     // Cache-first
     const cached = readCachedStatus()

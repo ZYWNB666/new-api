@@ -30,6 +30,7 @@ import {
 import {
   STATUS_QUERY_KEY,
   ensureStatus,
+  mapStatusDataToConfig,
   statusQueryOptions,
 } from '@/lib/status-query'
 import { useSystemConfigStore } from '@/stores/system-config-store'
@@ -90,6 +91,22 @@ afterEach(() => {
 })
 
 describe('shared status query deduplication', () => {
+  test('replaces legacy public branding while preserving custom names', () => {
+    expect(
+      mapStatusDataToConfig({
+        system_name: 'New API',
+        footer_html: '<p>Powered by new-api</p>',
+      })
+    ).toMatchObject({
+      systemName: '流能AI',
+      footerHtml: '<p>Powered by 流能AI</p>',
+    })
+
+    expect(
+      mapStatusDataToConfig({ system_name: 'Acme Model Cloud' }).systemName
+    ).toBe('Acme Model Cloud')
+  })
+
   test.each(['cold', 'stale'] as const)(
     'deduplicates %s cache requests across guards and hook consumers',
     async (cacheState) => {

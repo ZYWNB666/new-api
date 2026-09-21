@@ -2670,6 +2670,7 @@
     "Function calling": "函數呼叫",
     "Functions": "函數",
     "Gateways": "閘道",
+    "AI Gateway": "AI 聚合閘道",
     "GC Count": "GC 次數",
     "GC executed": "GC 已執行",
     "GC execution failed": "GC 執行失敗",

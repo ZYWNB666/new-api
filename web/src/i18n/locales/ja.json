@@ -2670,6 +2670,7 @@
     "Function calling": "関数呼び出し",
     "Functions": "関数",
     "Gateways": "ゲートウェイ",
+    "AI Gateway": "AIゲートウェイ",
     "GC Count": "GC 回数",
     "GC executed": "GC 実行完了",
     "GC execution failed": "GC 実行失敗",

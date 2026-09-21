@@ -200,7 +200,7 @@ export function Features(_props: FeaturesProps) {
               key={f.id}
               delay={i * 100}
               animation='scale-in'
-              className={`bg-background group hover:bg-muted/20 p-7 transition-colors duration-300 md:p-8 ${f.span}`}
+              className={`landing-motion-card bg-background group hover:bg-muted/20 p-7 transition-colors duration-300 md:p-8 ${f.span}`}
             >
               <div className='mb-3 flex items-center gap-3'>
                 <span className='border-border/40 bg-muted text-muted-foreground flex size-7 items-center justify-center rounded-md border text-[10px] font-semibold tabular-nums'>
@@ -223,7 +223,7 @@ export function Features(_props: FeaturesProps) {
               key={f.title}
               delay={i * 100}
               animation='fade-up'
-              className='flex flex-col items-center text-center'
+              className='landing-motion-card border-border/40 bg-background/70 flex flex-col items-center rounded-2xl border p-5 text-center'
             >
               <div className='text-muted-foreground border-border/50 bg-muted/30 group-hover:text-foreground mb-3 flex size-12 items-center justify-center rounded-xl border transition-colors'>
                 {f.icon}

@@ -21,8 +21,21 @@ For commercial licensing, please contact support@quantumnous.com
  */
 
 // System Configuration Defaults
-export const DEFAULT_SYSTEM_NAME = 'New API'
-export const DEFAULT_LOGO = '/logo.png'
+export const DEFAULT_SYSTEM_NAME = '流能AI'
+export const DEFAULT_LOGO = '/logo-flow-ai.png'
+
+const LEGACY_BRAND_PATTERN = /new[\s-]?api/gi
+
+/** Remove the upstream project's legacy product name from user-facing copy. */
+export function sanitizeLegacyBrandText(value: string): string {
+  return value.replaceAll(LEGACY_BRAND_PATTERN, DEFAULT_SYSTEM_NAME)
+}
+
+/** Keep custom deployments branded while replacing the legacy default name. */
+export function getPublicSystemName(value?: string | null): string {
+  const name = value?.trim()
+  return name ? sanitizeLegacyBrandText(name) : DEFAULT_SYSTEM_NAME
+}
 
 // LocalStorage Keys
 export const STORAGE_KEYS = {

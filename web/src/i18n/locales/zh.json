@@ -2670,6 +2670,7 @@
     "Function calling": "函数调用",
     "Functions": "函数",
     "Gateways": "网关",
+    "AI Gateway": "AI 聚合网关",
     "GC Count": "GC 次数",
     "GC executed": "GC 已执行",
     "GC execution failed": "GC 执行失败",

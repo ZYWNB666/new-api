@@ -557,6 +557,107 @@ For commercial licensing, please contact support@quantumnous.com
   }
 }
 
+/* Landing cards: restrained motion, depth, and a soft light sweep. */
+@keyframes landing-card-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@keyframes landing-chip-pulse {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+.landing-motion-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  transition:
+    border-color 240ms ease,
+    box-shadow 240ms ease,
+    transform 240ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.landing-motion-card::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(
+    120deg,
+    transparent 15%,
+    color-mix(in oklch, var(--success) 9%, transparent) 45%,
+    transparent 72%
+  );
+  content: '';
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-48%);
+  transition:
+    opacity 240ms ease,
+    transform 700ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .landing-motion-card:hover {
+    border-color: color-mix(in oklch, var(--success) 28%, var(--border));
+    box-shadow: 0 20px 44px -32px
+      color-mix(in oklch, var(--success) 55%, transparent);
+    transform: translateY(-4px);
+  }
+
+  .landing-motion-card:hover::before {
+    opacity: 1;
+    transform: translateX(48%);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .landing-metric-card {
+    animation: landing-card-float 5.8s ease-in-out infinite;
+  }
+
+  .landing-metric-card:nth-child(2) {
+    animation-delay: -1.9s;
+  }
+
+  .landing-metric-card:nth-child(3) {
+    animation-delay: -3.8s;
+  }
+
+  .landing-model-strip > * {
+    animation: landing-chip-pulse 3.8s ease-in-out infinite;
+  }
+
+  .landing-model-strip > :nth-child(2n) {
+    animation-delay: -1.2s;
+  }
+
+  .landing-model-strip > :nth-child(3n) {
+    animation-delay: -2.4s;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-motion-card,
+  .landing-motion-card::before,
+  .landing-metric-card,
+  .landing-model-strip > * {
+    animation: none !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
 /* Micro-interactions — Vercel-style subtle hover/active feedback */
 @media (prefers-reduced-motion: no-preference) {
   [data-slot='card']:not([data-card-hover='false']) {

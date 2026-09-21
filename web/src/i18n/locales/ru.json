@@ -2670,6 +2670,7 @@
     "Function calling": "Вызов функций",
     "Functions": "Функции",
     "Gateways": "Шлюзы",
+    "AI Gateway": "ИИ-шлюз",
     "GC Count": "Кол-во GC",
     "GC executed": "GC выполнен",
     "GC execution failed": "Ошибка выполнения GC",
