@@ -86,4 +86,15 @@ describe('home hero', () => {
     ).toHaveAttribute('href', '/dashboard')
     expect(screen.queryByRole('button', { name: /Get Started/ })).toBeNull()
   })
+
+  it('renders decorative green wave layers behind the hero content', () => {
+    const { container } = render(<Hero />)
+    const waves = container.querySelectorAll('.landing-wave')
+
+    expect(waves).toHaveLength(2)
+    for (const wave of waves) {
+      expect(wave).toHaveAttribute('aria-hidden', 'true')
+      expect(wave).toHaveClass('pointer-events-none')
+    }
+  })
 })

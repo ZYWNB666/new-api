@@ -26,7 +26,7 @@ import {
 
 const defaultSiteSettings: SiteSettings = {
   Notice: '',
-  SystemName: '流能AI',
+  SystemName: '维流 Token 平台',
   Logo: '',
   Footer: '',
   About: '',

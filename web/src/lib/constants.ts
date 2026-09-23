@@ -21,7 +21,7 @@ For commercial licensing, please contact support@quantumnous.com
  */
 
 // System Configuration Defaults
-export const DEFAULT_SYSTEM_NAME = '流能AI'
+export const DEFAULT_SYSTEM_NAME = '维流 Token 平台'
 export const DEFAULT_LOGO = '/logo-flow-ai.png'
 
 const LEGACY_BRAND_PATTERN = /new[\s-]?api/gi

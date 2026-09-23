@@ -532,6 +532,64 @@ For commercial licensing, please contact support@quantumnous.com
 .landing-animate-fade-up {
   animation: landing-fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
+
+/* Hero ambient waves: layered green sweeps echoing the card hover sheen. */
+@keyframes landing-wave-drift {
+  0% {
+    transform: translateX(-30%) translateY(0) scaleY(1);
+  }
+  50% {
+    transform: translateX(30%) translateY(-2.5%) scaleY(1.15);
+  }
+  100% {
+    transform: translateX(-30%) translateY(0) scaleY(1);
+  }
+}
+
+@keyframes landing-wave-drift-alt {
+  0% {
+    transform: translateX(30%) translateY(0) scaleY(1.1);
+  }
+  50% {
+    transform: translateX(-30%) translateY(2%) scaleY(0.9);
+  }
+  100% {
+    transform: translateX(30%) translateY(0) scaleY(1.1);
+  }
+}
+
+.landing-wave {
+  position: absolute;
+  inset-inline: -20%;
+  background: linear-gradient(
+    120deg,
+    transparent 12%,
+    color-mix(in oklch, var(--success) 28%, transparent) 45%,
+    color-mix(in oklch, var(--success) 44%, transparent) 55%,
+    transparent 88%
+  );
+  filter: blur(32px);
+  animation: landing-wave-drift 11s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.landing-wave-alt {
+  background: linear-gradient(
+    120deg,
+    transparent 20%,
+    color-mix(in oklch, var(--success) 24%, transparent) 50%,
+    transparent 80%
+  );
+  animation: landing-wave-drift-alt 17s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-wave,
+  .landing-wave-alt {
+    animation: none !important;
+    transform: none !important;
+  }
+}
 .landing-animate-fade-in {
   animation: landing-fade-in 0.6s ease-out both;
 }
@@ -594,14 +652,16 @@ For commercial licensing, please contact support@quantumnous.com
   z-index: -1;
   background: linear-gradient(
     120deg,
-    transparent 15%,
-    color-mix(in oklch, var(--success) 9%, transparent) 45%,
-    transparent 72%
+    color-mix(in oklch, var(--success) 4%, transparent) 0%,
+    color-mix(in oklch, var(--success) 9%, transparent) 28%,
+    color-mix(in oklch, var(--success) 15%, transparent) 50%,
+    color-mix(in oklch, var(--success) 9%, transparent) 72%,
+    color-mix(in oklch, var(--success) 4%, transparent) 100%
   );
   content: '';
   opacity: 0;
   pointer-events: none;
-  transform: translateX(-48%);
+  transform: translateX(-100%);
   transition:
     opacity 240ms ease,
     transform 700ms cubic-bezier(0.16, 1, 0.3, 1);
@@ -617,7 +677,7 @@ For commercial licensing, please contact support@quantumnous.com
 
   .landing-motion-card:hover::before {
     opacity: 1;
-    transform: translateX(48%);
+    transform: translateX(0);
   }
 }
 

@@ -192,7 +192,7 @@ export function resolveChatUrl({
 
   if (url.includes('{aqbotConfig}')) {
     const query = [
-      `name=${encodeURIComponent('流能AI')}`,
+      `name=${encodeURIComponent('维流 Token 平台')}`,
       `baseurl=${encodeURIComponent(safeServerAddress)}`,
       `apikey=${encodeURIComponent(safeApiKey)}`,
       'type=openai',

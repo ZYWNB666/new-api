@@ -98,8 +98,8 @@ describe('shared status query deduplication', () => {
         footer_html: '<p>Powered by new-api</p>',
       })
     ).toMatchObject({
-      systemName: '流能AI',
-      footerHtml: '<p>Powered by 流能AI</p>',
+      systemName: '维流 Token 平台',
+      footerHtml: '<p>Powered by 维流 Token 平台</p>',
     })
 
     expect(

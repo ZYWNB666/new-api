@@ -47,13 +47,13 @@ vi.mock('@/components/layout/components/footer', () => ({
 }))
 
 describe('default home layout', () => {
-  it('ends after the workflow section without rendering CTA or project footer', () => {
+  it('ends after the workflow section with the company footer', () => {
     render(<Home />)
 
     expect(screen.getByText('Hero section')).toBeInTheDocument()
     expect(screen.getByText('Features section')).toBeInTheDocument()
     expect(screen.getByText('How it works section')).toBeInTheDocument()
     expect(screen.queryByText('CTA section')).not.toBeInTheDocument()
-    expect(screen.queryByText('Project footer')).not.toBeInTheDocument()
+    expect(screen.getByText('Project footer')).toBeInTheDocument()
   })
 })
