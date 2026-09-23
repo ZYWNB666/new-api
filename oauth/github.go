@@ -72,8 +72,10 @@ func (p *GitHubProvider) ExchangeToken(ctx context.Context, code string, c *gin.
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	client := http.Client{
-		Timeout: 20 * time.Second,
+	client, err := newOAuthHTTPClient("github", 20*time.Second)
+	if err != nil {
+		logger.LogError(ctx, "[OAuth-GitHub] ExchangeToken proxy configuration error")
+		return nil, NewOAuthErrorWithRaw(i18n.MsgOAuthConnectFailed, map[string]any{"Provider": "GitHub"}, err.Error())
 	}
 	res, err := client.Do(req)
 	if err != nil {
@@ -114,8 +116,10 @@ func (p *GitHubProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*O
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token.AccessToken))
 
-	client := http.Client{
-		Timeout: 20 * time.Second,
+	client, err := newOAuthHTTPClient("github", 20*time.Second)
+	if err != nil {
+		logger.LogError(ctx, "[OAuth-GitHub] GetUserInfo proxy configuration error")
+		return nil, NewOAuthErrorWithRaw(i18n.MsgOAuthConnectFailed, map[string]any{"Provider": "GitHub"}, err.Error())
 	}
 	res, err := client.Do(req)
 	if err != nil {
@@ -174,8 +178,10 @@ func (p *GitHubProvider) GetVerifiedEmails(ctx context.Context, token *OAuthToke
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
 	req.Header.Set("Accept", "application/vnd.github+json")
 
-	client := http.Client{
-		Timeout: 20 * time.Second,
+	client, err := newOAuthHTTPClient("github", 20*time.Second)
+	if err != nil {
+		logger.LogError(ctx, "[OAuth-GitHub] GetVerifiedEmails proxy configuration error")
+		return nil, NewOAuthErrorWithRaw(i18n.MsgOAuthConnectFailed, map[string]any{"Provider": "GitHub"}, err.Error())
 	}
 	res, err := client.Do(req)
 	if err != nil {

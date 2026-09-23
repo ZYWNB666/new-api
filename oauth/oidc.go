@@ -71,8 +71,10 @@ func (p *OIDCProvider) ExchangeToken(ctx context.Context, code string, c *gin.Co
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	client := http.Client{
-		Timeout: 5 * time.Second,
+	client, err := newOAuthHTTPClient("oidc", 5*time.Second)
+	if err != nil {
+		logger.LogError(ctx, "[OAuth-OIDC] ExchangeToken proxy configuration error")
+		return nil, NewOAuthErrorWithRaw(i18n.MsgOAuthConnectFailed, map[string]any{"Provider": "OIDC"}, err.Error())
 	}
 	res, err := client.Do(req)
 	if err != nil {
@@ -118,8 +120,10 @@ func (p *OIDCProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*OAu
 	}
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
 
-	client := http.Client{
-		Timeout: 5 * time.Second,
+	client, err := newOAuthHTTPClient("oidc", 5*time.Second)
+	if err != nil {
+		logger.LogError(ctx, "[OAuth-OIDC] GetUserInfo proxy configuration error")
+		return nil, NewOAuthErrorWithRaw(i18n.MsgOAuthConnectFailed, map[string]any{"Provider": "OIDC"}, err.Error())
 	}
 	res, err := client.Do(req)
 	if err != nil {

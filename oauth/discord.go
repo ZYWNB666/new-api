@@ -69,8 +69,10 @@ func (p *DiscordProvider) ExchangeToken(ctx context.Context, code string, c *gin
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	client := http.Client{
-		Timeout: 5 * time.Second,
+	client, err := newOAuthHTTPClient("discord", 5*time.Second)
+	if err != nil {
+		logger.LogError(ctx, "[OAuth-Discord] ExchangeToken proxy configuration error")
+		return nil, NewOAuthErrorWithRaw(i18n.MsgOAuthConnectFailed, map[string]any{"Provider": "Discord"}, err.Error())
 	}
 	res, err := client.Do(req)
 	if err != nil {
@@ -114,8 +116,10 @@ func (p *DiscordProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*
 	}
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
 
-	client := http.Client{
-		Timeout: 5 * time.Second,
+	client, err := newOAuthHTTPClient("discord", 5*time.Second)
+	if err != nil {
+		logger.LogError(ctx, "[OAuth-Discord] GetUserInfo proxy configuration error")
+		return nil, NewOAuthErrorWithRaw(i18n.MsgOAuthConnectFailed, map[string]any{"Provider": "Discord"}, err.Error())
 	}
 	res, err := client.Do(req)
 	if err != nil {
