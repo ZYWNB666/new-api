@@ -26,7 +26,10 @@ export function isHttpUrl(value: string): boolean {
 }
 
 export function isLikelyHtml(value: string): boolean {
-  return /<!doctype html|<html[\s>]|<head[\s>]|<body[\s>]|<style[\s>]|<script[\s>]|<\/?[a-z][\s\S]*>/i.test(
+  // Markdown autolinks such as <https://example.com> and <user@example.com>
+  // are not HTML. Require a complete tag name followed immediately by tag
+  // syntax so legal documents containing contact links stay in Markdown mode.
+  return /<!doctype\s+html\b|<\/?[a-z][a-z0-9-]*(?:\s[^<>]*|\s*\/?)>/i.test(
     value
   )
 }

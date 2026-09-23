@@ -53,6 +53,7 @@ export function LegalDocument({
   const hasContent = rawContent.length > 0
   const isUrl = hasContent && isHttpUrl(rawContent)
   const contentIsHtml = hasContent && isLikelyHtml(rawContent)
+  const markdownHasLeadingTitle = /^\s*#\s+\S/.test(rawContent)
   const success = data?.success ?? false
 
   if (isLoading) {
@@ -127,17 +128,22 @@ export function LegalDocument({
       {contentIsHtml ? (
         <RichContent mode='html' htmlVariant='isolated' content={rawContent} />
       ) : (
-        <div className='mx-auto max-w-4xl space-y-6 py-12'>
-          <div className='space-y-2'>
-            <h1 className='text-3xl font-semibold tracking-tight'>{title}</h1>
-          </div>
-
-          <RichContent
-            mode='markdown'
-            content={rawContent}
-            className='prose-neutral dark:prose-invert max-w-none'
-          />
-        </div>
+        <article className='mx-auto max-w-4xl py-8 md:py-12'>
+          <Card>
+            <CardContent className='p-6 md:p-10'>
+              {!markdownHasLeadingTitle && (
+                <h1 className='mb-6 text-3xl font-semibold tracking-tight'>
+                  {title}
+                </h1>
+              )}
+              <RichContent
+                mode='markdown'
+                content={rawContent}
+                className='prose-neutral dark:prose-invert max-w-none'
+              />
+            </CardContent>
+          </Card>
+        </article>
       )}
     </PublicLayout>
   )
