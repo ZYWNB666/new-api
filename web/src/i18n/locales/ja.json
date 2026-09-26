@@ -6774,6 +6774,16 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "New · Jev Decision Model": "新機能 · Jev デシジョンモデル",
+    "Route tasks with instant AI decisions": "即時 AI デシジョンでタスクをスマートにルーティング",
+    "Jev reads your task text and returns structured answers: classify into categories, score on a scale, or estimate a value — one call, no prompt engineering.": "Jev はタスクテキストを読み、分類・スコアリング・数値推定を構造化された答えとして返します。1 回の呼び出しで、プロンプトエンジニアリングは不要です。",
+    "jev.questionType.choice.title": "分類選択",
+    "jev.questionType.choice.desc": "定義したカテゴリに分類し、信頼度を返します。",
+    "jev.questionType.score.title": "スコアリング",
+    "jev.questionType.score.desc": "スケールで評価し、凡例と確率分布を返します。",
+    "jev.questionType.noul.title": "数値推定",
+    "jev.questionType.noul.desc": "0〜1 の連続値を推定します。",
+    "View Model Pricing": "モデル料金を見る"
   }
 }

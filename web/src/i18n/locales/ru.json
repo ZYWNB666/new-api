@@ -6774,6 +6774,16 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "New · Jev Decision Model": "Новое · Модель решений Jev",
+    "Route tasks with instant AI decisions": "Маршрутизируйте задачи с мгновенными ИИ-решениями",
+    "Jev reads your task text and returns structured answers: classify into categories, score on a scale, or estimate a value — one call, no prompt engineering.": "Jev читает текст задачи и возвращает структурированные ответы: классификация, оценка по шкале или числовая оценка — один вызов, без prompt engineering.",
+    "jev.questionType.choice.title": "Выбор",
+    "jev.questionType.choice.desc": "Классифицируйте по своим категориям с уверенностью.",
+    "jev.questionType.score.title": "Оценка",
+    "jev.questionType.score.desc": "Оценивайте по шкале с легендой и вероятностями.",
+    "jev.questionType.noul.title": "Оценка значения",
+    "jev.questionType.noul.desc": "Оценивайте непрерывное значение от 0 до 1.",
+    "View Model Pricing": "Посмотреть цены на модели"
   }
 }

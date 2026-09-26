@@ -6774,6 +6774,16 @@
     "Zhipu": "智譜",
     "Zhipu GLM": "智譜GLM",
     "Zhipu V4": "智譜 V4",
-    "Zoom": "縮放"
+    "Zoom": "縮放",
+    "New · Jev Decision Model": "新功能 · Jev 決策模型",
+    "Route tasks with instant AI decisions": "用即時 AI 決策智慧路由任務",
+    "Jev reads your task text and returns structured answers: classify into categories, score on a scale, or estimate a value — one call, no prompt engineering.": "Jev 閱讀你的任務文字並返回結構化答案：歸類分類、區間打分或數值估計——一次呼叫，無需編寫提示詞。",
+    "jev.questionType.choice.title": "分類選擇",
+    "jev.questionType.choice.desc": "把任務歸入你定義的類別，並返回信心度。",
+    "jev.questionType.score.title": "區間打分",
+    "jev.questionType.score.desc": "按刻度打分，返回圖例與機率分佈。",
+    "jev.questionType.noul.title": "數值估計",
+    "jev.questionType.noul.desc": "估計 0 到 1 之間的連續數值。",
+    "View Model Pricing": "查看模型定價"
   }
 }

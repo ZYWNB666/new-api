@@ -26,7 +26,7 @@ import { useTheme } from '@/context/theme-provider'
 import { isLikelyHtml } from '@/lib/content-format'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { Features, Hero, HowItWorks } from './components'
+import { Features, Hero, HowItWorks, JevShowcase } from './components'
 import { useHomePageContent } from './hooks'
 
 export function Home() {
@@ -125,6 +125,7 @@ export function Home() {
       <Hero isAuthenticated={isAuthenticated} />
       <Features />
       <HowItWorks />
+      <JevShowcase />
       <Footer />
     </PublicLayout>
   )

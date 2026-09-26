@@ -6774,6 +6774,16 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "New · Jev Decision Model": "Mới · Mô hình quyết định Jev",
+    "Route tasks with instant AI decisions": "Định tuyến tác vụ bằng quyết định AI tức thì",
+    "Jev reads your task text and returns structured answers: classify into categories, score on a scale, or estimate a value — one call, no prompt engineering.": "Jev đọc văn bản tác vụ và trả về câu trả lời có cấu trúc: phân loại, chấm điểm theo thang đo hoặc ước lượng giá trị — chỉ một lần gọi, không cần viết prompt.",
+    "jev.questionType.choice.title": "Lựa chọn",
+    "jev.questionType.choice.desc": "Phân loại vào danh mục của bạn kèm độ tin cậy.",
+    "jev.questionType.score.title": "Chấm điểm",
+    "jev.questionType.score.desc": "Đánh giá theo thang đo kèm chú giải và xác suất.",
+    "jev.questionType.noul.title": "Ước lượng",
+    "jev.questionType.noul.desc": "Ước lượng giá trị liên tục từ 0 đến 1.",
+    "View Model Pricing": "Xem giá mô hình"
   }
 }

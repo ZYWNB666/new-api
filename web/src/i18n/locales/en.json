@@ -6774,6 +6774,16 @@
     "Zhipu": "Zhipu",
     "Zhipu GLM": "Zhipu GLM",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "New · Jev Decision Model": "New · Jev Decision Model",
+    "Route tasks with instant AI decisions": "Route tasks with instant AI decisions",
+    "Jev reads your task text and returns structured answers: classify into categories, score on a scale, or estimate a value — one call, no prompt engineering.": "Jev reads your task text and returns structured answers: classify into categories, score on a scale, or estimate a value — one call, no prompt engineering.",
+    "jev.questionType.choice.title": "Choice",
+    "jev.questionType.choice.desc": "Classify into one of your categories with confidence scores.",
+    "jev.questionType.score.title": "Score",
+    "jev.questionType.score.desc": "Rate on a scale with a calibrated legend and probabilities.",
+    "jev.questionType.noul.title": "Noul",
+    "jev.questionType.noul.desc": "Estimate a continuous value between 0 and 1.",
+    "View Model Pricing": "View Model Pricing"
   }
 }

@@ -40,6 +40,7 @@ vi.mock('../components', () => ({
   Hero: () => <div>Hero section</div>,
   Features: () => <div>Features section</div>,
   HowItWorks: () => <div>How it works section</div>,
+  JevShowcase: () => <div>Jev showcase section</div>,
   CTA: () => <div>CTA section</div>,
 }))
 vi.mock('@/components/layout/components/footer', () => ({
@@ -47,12 +48,13 @@ vi.mock('@/components/layout/components/footer', () => ({
 }))
 
 describe('default home layout', () => {
-  it('ends after the workflow section with the company footer', () => {
+  it('ends after the jev showcase section with the company footer', () => {
     render(<Home />)
 
     expect(screen.getByText('Hero section')).toBeInTheDocument()
     expect(screen.getByText('Features section')).toBeInTheDocument()
     expect(screen.getByText('How it works section')).toBeInTheDocument()
+    expect(screen.getByText('Jev showcase section')).toBeInTheDocument()
     expect(screen.queryByText('CTA section')).not.toBeInTheDocument()
     expect(screen.getByText('Project footer')).toBeInTheDocument()
   })
