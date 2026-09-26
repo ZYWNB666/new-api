@@ -706,6 +706,11 @@ func GenRelayInfo(c *gin.Context, relayFormat types.RelayFormat, request dto.Req
 			return GenRelayInfoAlphaSearch(c, request), nil
 		}
 		return nil, errors.New("request is not a AlphaSearchRequest")
+	case types.RelayFormatJev:
+		if request, ok := request.(*dto.JevDecisionRequest); ok {
+			return GenRelayInfoJev(c, request), nil
+		}
+		return nil, errors.New("request is not a JevDecisionRequest")
 	case types.RelayFormatTask:
 		info = genBaseRelayInfo(c, nil)
 		info.TaskRelayInfo = &TaskRelayInfo{}
@@ -794,6 +799,15 @@ func GenRelayInfoAlphaSearch(c *gin.Context, request *dto.AlphaSearchRequest) *R
 			},
 		},
 	}
+	return info
+}
+
+func GenRelayInfoJev(c *gin.Context, request *dto.JevDecisionRequest) *RelayInfo {
+	info := genBaseRelayInfo(c, request)
+	if info.RelayMode == relayconstant.RelayModeUnknown {
+		info.RelayMode = relayconstant.RelayModeJev
+	}
+	info.RelayFormat = types.RelayFormatJev
 	return info
 }
 

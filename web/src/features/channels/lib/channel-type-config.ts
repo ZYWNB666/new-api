@@ -20,6 +20,7 @@ import {
   CHANNEL_TYPES,
   CHANNEL_TYPE_VLLM,
   CHANNEL_TYPE_SGLANG,
+  CHANNEL_TYPE_JEV,
 } from '../constants'
 
 // ============================================================================
@@ -67,6 +68,20 @@ export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
       baseUrl: 'vLLM server address, without /v1',
       key: 'vLLM API key, or EMPTY if authentication is disabled',
       models: 'Models fetched from upstream /v1/models',
+    },
+  },
+  [CHANNEL_TYPE_JEV]: {
+    id: CHANNEL_TYPE_JEV,
+    name: CHANNEL_TYPES[CHANNEL_TYPE_JEV],
+    icon: 'openrouter',
+    hints: {
+      baseUrl:
+        'OpenRouter: https://openrouter.ai/api (default) or TypeSafe: https://api.typesafe.ai',
+      key: 'OpenRouter API key (sk-or-v1-...) or TypeSafe API key',
+      models: 'typesafe/jev-1.13',
+    },
+    validation: {
+      keyMinLength: 20,
     },
   },
   1: {

@@ -1355,6 +1355,7 @@
     "Connect to OpenAI Sora video generation services": "Connect to OpenAI Sora video generation services",
     "Connect to Perplexity model services": "Connect to Perplexity model services",
     "Connect to self-hosted models served by SGLang": "Connect to self-hosted models served by SGLang",
+    "Route Jev decision requests (choice, score, noul) through OpenRouter or TypeSafe": "Route Jev decision requests (choice, score, noul) through OpenRouter or TypeSafe",
     "Connect to self-hosted models served by vLLM": "Connect to self-hosted models served by vLLM",
     "Connect to self-hosted models served by Xinference": "Connect to self-hosted models served by Xinference",
     "Connect to SiliconFlow model inference services": "Connect to SiliconFlow model inference services",
