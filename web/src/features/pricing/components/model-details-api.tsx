@@ -158,6 +158,128 @@ function buildChatSample(lang: Lang, ctx: SampleContext): string {
   ].join('\n')
 }
 
+function buildJevSample(lang: Lang, ctx: SampleContext): string {
+  const url = `${ctx.baseUrl}${ctx.endpointPath}`
+  // Jev 决策请求：state 为待判断文本，questions 定义问题（choice/score/noul）
+  const decisionBody = {
+    model: ctx.modelName,
+    state: '客户反馈：提现已连续失败 3 天，请尽快处理。',
+    questions: {
+      部门: {
+        type: 'choice',
+        instructions: '该工单应由哪个团队处理？',
+        criteria: {
+          billing: '支付、发票、退款',
+          technical: '故障、宕机、集成问题',
+          sales: '定价、升级、新账号',
+        },
+      },
+      紧急度: {
+        type: 'score',
+        instructions: '客户有多着急？',
+        criteria: ['平静', '着急', '非常急切'],
+      },
+      负面情绪: {
+        type: 'noul',
+        instructions: '估算整体负面程度',
+      },
+    },
+  }
+  const bodyJson = JSON.stringify(decisionBody, null, 2)
+
+  if (lang === 'curl') {
+    return [
+      `# Jev 决策模型：传入任务文本（state）与问题清单（questions），返回结构化判断结果`,
+      `# choice=分类选择（带置信度） score=区间打分（带概率分布） noul=数值估计（0~1）`,
+      `curl ${url} \\`,
+      `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
+      `  -H "Content-Type: application/json" \\`,
+      `  -d '${bodyJson.replaceAll('\\n', '\\n     ')}'`,
+    ].join('\n')
+  }
+
+  if (lang === 'python') {
+    const pyBody = [
+      `{`,
+      `    "model": "${ctx.modelName}",`,
+      `    "state": "客户反馈：提现已连续失败 3 天，请尽快处理。",`,
+      `    "questions": {`,
+      `        "部门": {`,
+      `            "type": "choice",`,
+      `            "instructions": "该工单应由哪个团队处理？",`,
+      `            "criteria": {`,
+      `                "billing": "支付、发票、退款",`,
+      `                "technical": "故障、宕机、集成问题",`,
+      `                "sales": "定价、升级、新账号",`,
+      `            },`,
+      `        },`,
+      `        "紧急度": {`,
+      `            "type": "score",`,
+      `            "instructions": "客户有多着急？",`,
+      `            "criteria": ["平静", "着急", "非常急切"],`,
+      `        },`,
+      `        "负面情绪": {"type": "noul", "instructions": "估算整体负面程度"},`,
+      `    },`,
+      `}`,
+    ].join('\n')
+    return [
+      `import requests`,
+      '',
+      `# Jev 决策模型：state 为待判断文本，questions 定义三种问题类型`,
+      `# choice → 从 criteria 键中选择，返回 choice + probabilities + confidence`,
+      `# score  → 按数组刻度打分，返回 score + legend + probabilities`,
+      `# noul   → 数值估计，返回 0~1 连续值（noul 类型不要带 criteria）`,
+      `payload = ${pyBody}`,
+      '',
+      `response = requests.post(`,
+      `    "${url}",`,
+      `    headers={"Authorization": "Bearer <YOUR_API_KEY>"},`,
+      `    json=payload,`,
+      `)`,
+      '',
+      `print(response.json())`,
+      `# 返回示例：answers["部门"]["choice"]="billing"、answers["紧急度"]["score"]=1.2、answers["负面情绪"]["noul"]=0.85`,
+    ].join('\n')
+  }
+
+  if (lang === 'typescript') {
+    return [
+      `// Jev 决策模型：state 为待判断文本，questions 定义三种问题类型`,
+      `// choice → 分类选择（带置信度） score → 区间打分 noul → 0~1 数值估计`,
+      `const response = await fetch('${url}', {`,
+      `  method: 'POST',`,
+      `  headers: {`,
+      `    Authorization: \`Bearer \${process.env.${ctx.apiKeyEnv}}\`,`,
+      `    'Content-Type': 'application/json',`,
+      `  },`,
+      `  body: JSON.stringify(${bodyJson}),`,
+      `})`,
+      '',
+      `const data = await response.json()`,
+      `// data.answers.部门.choice → "billing"（含 probabilities 与 confidence）`,
+      `// data.answers.紧急度.score → 打分值（含 legend）`,
+      `// data.answers.负面情绪.noul → 0~1 数值`,
+      `console.log(data)`,
+    ].join('\n')
+  }
+
+  return [
+    `// Jev 决策模型：state 为待判断文本，questions 定义三种问题类型`,
+    `const response = await fetch('${url}', {`,
+    `  method: 'POST',`,
+    `  headers: {`,
+    `    Authorization: \`Bearer \${process.env.${ctx.apiKeyEnv}}\`,`,
+    `    'Content-Type': 'application/json',`,
+    `  },`,
+    `  body: JSON.stringify(${bodyJson}),`,
+    `})`,
+    '',
+    `const data = await response.json()`,
+    `// answers：各问题结构化结果（choice/score/noul）+ usage（tokens 与费用）`,
+    `console.log(data)`,
+  ].join('\n')
+}
+
 function buildAnthropicSample(lang: Lang, ctx: SampleContext): string {
   const url = `${ctx.baseUrl}${ctx.endpointPath}`
   const userMessage = 'Explain quantum entanglement in one paragraph.'
@@ -430,6 +552,9 @@ function buildSample(
 ): string {
   if (endpointType === 'anthropic') return buildAnthropicSample(lang, ctx)
   if (endpointType === 'gemini') return buildGeminiSample(lang, ctx)
+  if (endpointType === 'jev') {
+    return buildJevSample(lang, ctx)
+  }
   if (endpointType === 'embeddings' || endpointType === 'jina-rerank')
     return buildEmbeddingSample(lang, ctx)
   if (endpointType === 'image-generation') return buildImageSample(lang, ctx)
