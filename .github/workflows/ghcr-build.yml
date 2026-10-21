@@ -108,6 +108,6 @@ jobs:
         with:
           name: new-api-binary
           path: |
-            new-api-$VERSION-linux-amd64
-            new-api-$VERSION-linux-amd64.sha256
+            new-api-${{ env.VERSION }}-linux-amd64
+            new-api-${{ env.VERSION }}-linux-amd64.sha256
           retention-days: 30
