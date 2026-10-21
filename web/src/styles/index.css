@@ -611,63 +611,6 @@ For commercial licensing, please contact support@quantumnous.com
   animation: landing-fade-up 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* Hero ambient waves: layered green sweeps behind the hero. */
-@keyframes landing-wave-drift {
-  0% {
-    transform: translateX(-30%) translateY(0) scaleY(1);
-  }
-  50% {
-    transform: translateX(30%) translateY(-2.5%) scaleY(1.15);
-  }
-  100% {
-    transform: translateX(-30%) translateY(0) scaleY(1);
-  }
-}
-
-@keyframes landing-wave-drift-alt {
-  0% {
-    transform: translateX(30%) translateY(0) scaleY(1.1);
-  }
-  50% {
-    transform: translateX(-30%) translateY(2%) scaleY(0.9);
-  }
-  100% {
-    transform: translateX(30%) translateY(0) scaleY(1.1);
-  }
-}
-
-.landing-wave {
-  position: absolute;
-  inset-inline: -5%;
-  background: linear-gradient(
-    120deg,
-    transparent 12%,
-    color-mix(in oklch, var(--primary) 28%, transparent) 45%,
-    color-mix(in oklch, var(--primary) 44%, transparent) 55%,
-    transparent 88%
-  );
-  filter: blur(20px);
-  animation: landing-wave-drift 11s ease-in-out infinite;
-  pointer-events: none;
-}
-
-.landing-wave-alt {
-  background: linear-gradient(
-    120deg,
-    transparent 20%,
-    color-mix(in oklch, var(--primary) 24%, transparent) 50%,
-    transparent 80%
-  );
-  animation: landing-wave-drift-alt 17s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .landing-wave,
-  .landing-wave-alt {
-    animation: none !important;
-    transform: none !important;
-  }
-}
 /* Hero orbit visual: breathing core + floating model badges. */
 @keyframes hero-core-pulse {
   0%,

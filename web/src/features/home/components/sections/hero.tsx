@@ -57,14 +57,6 @@ export function Hero(props: HeroProps) {
             'radial-gradient(ellipse 58% 52% at 50% 0%, color-mix(in oklch, var(--primary) 32%, transparent) 0%, transparent 72%)',
         }}
       />
-      <div
-        aria-hidden
-        className='landing-wave pointer-events-none absolute top-0 -z-10 h-[16rem] opacity-90 dark:opacity-45'
-      />
-      <div
-        aria-hidden
-        className='landing-wave landing-wave-alt pointer-events-none absolute top-[4rem] -z-10 h-[14rem] opacity-80 dark:opacity-35'
-      />
 
       <div className='mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-12'>
         <div className='flex min-w-0 flex-col items-start text-start'>

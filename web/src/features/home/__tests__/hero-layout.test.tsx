@@ -88,15 +88,4 @@ describe('home hero', () => {
     ).toHaveAttribute('href', '/dashboard')
     expect(screen.queryByRole('button', { name: /Get Started/ })).toBeNull()
   })
-
-  it('保留带无障碍隐藏属性的装饰波纹', () => {
-    const { container } = render(<Hero />)
-    const waves = container.querySelectorAll('.landing-wave')
-
-    expect(waves).toHaveLength(2)
-    for (const wave of waves) {
-      expect(wave).toHaveAttribute('aria-hidden', 'true')
-      expect(wave).toHaveClass('pointer-events-none')
-    }
-  })
 })
