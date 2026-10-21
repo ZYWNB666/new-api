@@ -22,25 +22,20 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { useSystemConfig } from '@/hooks/use-system-config'
-import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
 
-import { GatewayVisual } from '../gateway-visual'
+import { HeroOrbitVisual } from '../hero-orbit-visual'
 
 interface HeroProps {
   className?: string
   isAuthenticated?: boolean
 }
 
-const MODELS = [
-  { name: 'Qwen', icon: 'Qwen.Color' },
-  { name: 'DeepSeek', icon: 'DeepSeek.Color' },
-  { name: 'Zhipu GLM', icon: 'Zhipu.Color' },
-  { name: 'Doubao', icon: 'Doubao.Color' },
-  { name: 'Kimi', icon: 'Moonshot.Color' },
-  { name: 'MiniMax', icon: 'MiniMax.Color' },
-  { name: 'Baichuan', icon: 'Baichuan.Color' },
-  { name: 'ERNIE', icon: 'Wenxin.Color' },
+const STATS = [
+  { value: '100+', label: 'AI models' },
+  { value: '20+', label: 'Upstream adapters' },
+  { value: '99.9%', label: 'Uptime' },
+  { value: '<100ms', label: 'Routing overhead' },
 ] as const
 
 export function Hero(props: HeroProps) {
@@ -50,7 +45,7 @@ export function Hero(props: HeroProps) {
   return (
     <section
       className={cn(
-        'public-surface relative z-10 overflow-hidden px-4 pt-28 pb-12 sm:px-6 md:pt-36 md:pb-20',
+        'public-surface relative z-10 overflow-hidden px-4 pt-32 pb-16 font-sans sm:px-6 md:pt-40 md:pb-24',
         props.className
       )}
     >
@@ -64,11 +59,11 @@ export function Hero(props: HeroProps) {
       />
       <div
         aria-hidden
-        className='landing-wave pointer-events-none absolute top-[-6rem] -z-10 h-[16rem] rounded-[100%] opacity-90 dark:opacity-45'
+        className='landing-wave pointer-events-none absolute top-0 -z-10 h-[16rem] opacity-90 dark:opacity-45'
       />
       <div
         aria-hidden
-        className='landing-wave landing-wave-alt pointer-events-none absolute top-[6rem] -z-10 h-[14rem] rounded-[100%] opacity-80 dark:opacity-35'
+        className='landing-wave landing-wave-alt pointer-events-none absolute top-[4rem] -z-10 h-[14rem] opacity-80 dark:opacity-35'
       />
 
       <div className='mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-12'>
@@ -85,7 +80,7 @@ export function Hero(props: HeroProps) {
           </div>
 
           <h1
-            className='landing-animate-fade-up text-[clamp(2.5rem,6vw,4rem)] leading-[1.08] font-bold tracking-[-0.04em]'
+            className='landing-animate-fade-up text-[clamp(2.25rem,5vw,3.25rem)] leading-[1.1] font-[760] tracking-[-0.035em]'
             style={{ animationDelay: '60ms' }}
           >
             <span className='block'>{systemName}</span>
@@ -153,27 +148,24 @@ export function Hero(props: HeroProps) {
             <span>{t('Open Source')}</span>
           </div>
         </div>
-        <GatewayVisual className='w-full max-w-xl justify-self-center' />
+        <HeroOrbitVisual className='w-full max-w-xl justify-self-center' />
       </div>
-      <div className='mx-auto mt-12 max-w-6xl'>
-        <p className='text-muted-foreground mb-4 text-center text-xs font-medium'>
-          {t('Aggregating the leading AI model ecosystem')}
-        </p>
+      <div className='mx-auto mt-14 max-w-6xl'>
         <div
-          className='landing-model-strip landing-animate-fade-up border-border/70 bg-card/90 grid w-full grid-cols-4 gap-2 rounded-[1.75rem] border px-4 py-4 opacity-0 shadow-[0_16px_40px_-32px_rgba(15,23,42,0.45)] sm:grid-cols-8 sm:px-6'
+          className='landing-animate-fade-up grid w-full grid-cols-2 gap-3 opacity-0 sm:grid-cols-4'
           style={{ animationDelay: '240ms' }}
         >
-          {MODELS.map((model) => (
+          {STATS.map((stat) => (
             <div
-              key={model.name}
-              className='landing-motion-card bg-muted/60 flex flex-col items-center justify-center gap-1.5 rounded-xl border border-transparent px-2 py-3'
+              key={stat.label}
+              className='landing-motion-card border-border/60 bg-card/80 rounded-2xl border px-5 py-4 shadow-xs backdrop-blur'
             >
-              <span className='landing-card-icon flex items-center justify-center'>
-                {getLobeIcon(model.icon, 26)}
-              </span>
-              <span className='text-foreground text-[11px] font-semibold'>
-                {model.name}
-              </span>
+              <p className='text-xl font-bold tracking-tight tabular-nums sm:text-2xl'>
+                {stat.value}
+              </p>
+              <p className='text-muted-foreground mt-1 text-xs'>
+                {t(stat.label)}
+              </p>
             </div>
           ))}
         </div>

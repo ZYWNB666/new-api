@@ -17,7 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate } from '@tanstack/react-router'
-import { User, Wallet, LogOut, Settings, ShieldCheck } from 'lucide-react'
+import {
+  ChevronsUpDown,
+  User,
+  Wallet,
+  LogOut,
+  Settings,
+  ShieldCheck,
+} from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -31,6 +38,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from '@/components/ui/sidebar'
 import useDialogState from '@/hooks/use-dialog'
 import { useIsSidebarModuleVisible } from '@/hooks/use-sidebar-config'
 import { useUserDisplay } from '@/hooks/use-user-display'
@@ -40,7 +52,8 @@ import { useAuthStore } from '@/stores/auth-store'
 
 const avatarFallbackClassName = 'font-semibold text-white'
 
-export function ProfileDropdown() {
+export function ProfileDropdown(props: { variant?: 'header' | 'sidebar' }) {
+  const variant = props.variant ?? 'header'
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [open, setOpen] = useDialogState()
@@ -59,19 +72,56 @@ export function ProfileDropdown() {
   return (
     <>
       <DropdownMenu modal={false}>
-        <DropdownMenuTrigger
-          render={<Button variant='ghost' className='relative size-6 p-0' />}
+        {variant === 'sidebar' ? (
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <DropdownMenuTrigger
+                render={
+                  <SidebarMenuButton
+                    size='lg'
+                    className='data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground'
+                  />
+                }
+              >
+                <Avatar className='size-8 rounded-lg'>
+                  <AvatarFallback
+                    className={`${avatarFallbackClassName} rounded-lg text-xs`}
+                    style={avatarFallbackStyle}
+                  >
+                    {avatarFallback}
+                  </AvatarFallback>
+                </Avatar>
+                <div className='grid min-w-0 flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]/sidebar-wrapper:hidden'>
+                  <span className='truncate font-semibold'>{displayName}</span>
+                  <span className='text-muted-foreground truncate text-xs'>
+                    {roleLabel}
+                    {user?.group ? ` · ${String(user.group)}` : ''}
+                  </span>
+                </div>
+                <ChevronsUpDown className='ml-auto size-4 group-data-[collapsible=icon]/sidebar-wrapper:hidden' />
+              </DropdownMenuTrigger>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        ) : (
+          <DropdownMenuTrigger
+            render={<Button variant='ghost' className='relative size-6 p-0' />}
+          >
+            <Avatar className='size-6'>
+              <AvatarFallback
+                className={`${avatarFallbackClassName} text-[11px]`}
+                style={avatarFallbackStyle}
+              >
+                {avatarFallback}
+              </AvatarFallback>
+            </Avatar>
+          </DropdownMenuTrigger>
+        )}
+        <DropdownMenuContent
+          align={variant === 'sidebar' ? 'start' : 'end'}
+          side={variant === 'sidebar' ? 'top' : undefined}
+          sideOffset={8}
+          className='w-56'
         >
-          <Avatar className='size-6'>
-            <AvatarFallback
-              className={`${avatarFallbackClassName} text-[11px]`}
-              style={avatarFallbackStyle}
-            >
-              {avatarFallback}
-            </AvatarFallback>
-          </Avatar>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align='end' sideOffset={8} className='w-56'>
           <div className='flex items-center gap-2 px-1.5 py-1.5'>
             <Avatar className='size-8'>
               <AvatarFallback

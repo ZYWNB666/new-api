@@ -73,22 +73,37 @@ function sidebarFor(admin?: object, user?: object, canConfigure = true) {
   return result
 }
 
+// Flatten top-level items and any collapsible sub-items into a single title list.
+function flatItemTitles(groups: ReturnType<typeof useSidebarData>['navGroups']) {
+  return groups.flatMap((group) =>
+    group.items.flatMap((item) => {
+      const sub = 'items' in item && item.items ? item.items : []
+      return [item.title, ...sub.map((s) => s.title)]
+    })
+  )
+}
+
+function collapsibleSubTitles(
+  groups: ReturnType<typeof useSidebarData>['navGroups'],
+  parentTitle: string
+) {
+  const parent = groups
+    .flatMap((group) => group.items)
+    .find((item) => item.title === parentTitle)
+  const sub = parent && 'items' in parent && parent.items ? parent.items : []
+  return sub.map((s) => s.title)
+}
+
 describe('security sidebar visibility', () => {
-  it('old configurations show Security & Access immediately after Profile and keep API Keys', () => {
+  it('old configurations show Wallet, Profile and Security & Access under Account Center and keep API Keys', () => {
     const { result } = sidebarFor(
       { personal: { enabled: true, personal: true, topup: true } },
       { personal: { enabled: true, personal: true } }
     )
     expect(
-      result.current
-        .find((group) => group.id === 'personal')
-        ?.items.map((item) => item.title)
+      collapsibleSubTitles(result.current, 'Account Center')
     ).toEqual(['Wallet', 'Profile', 'Security & Access'])
-    expect(
-      result.current
-        .flatMap((group) => group.items)
-        .some((item) => item.title === 'API Keys')
-    ).toBe(true)
+    expect(flatItemTitles(result.current)).toContain('API Keys')
   })
   it.each([
     [{ personal: { enabled: true, security: false } }, undefined],
@@ -99,11 +114,7 @@ describe('security sidebar visibility', () => {
     'admin or user disablement hides Security & Access (%j, %j)',
     (admin, user) => {
       const { result } = sidebarFor(admin, user)
-      expect(
-        result.current
-          .flatMap((group) => group.items)
-          .some((item) => item.title === 'Security & Access')
-      ).toBe(false)
+      expect(flatItemTitles(result.current)).not.toContain('Security & Access')
     }
   )
   it('users without sidebar configuration permission retain the admin view', () => {
@@ -112,11 +123,7 @@ describe('security sidebar visibility', () => {
       { personal: { security: false } },
       false
     )
-    expect(
-      result.current
-        .flatMap((group) => group.items)
-        .some((item) => item.title === 'Security & Access')
-    ).toBe(true)
+    expect(flatItemTitles(result.current)).toContain('Security & Access')
   })
 })
 
@@ -129,28 +136,28 @@ describe('audit log sidebar entry', () => {
     config.console.audit = false
     const saved = parseSidebarModulesAdmin(serializeSidebarModulesAdmin(config))
     const { result } = sidebarFor(saved)
-    const titles = result.current
-      .flatMap((group) => group.items)
-      .map((item) => item.title)
+    const titles = flatItemTitles(result.current)
     expect(titles).not.toContain('Audit Logs')
     expect(titles).toContain('Usage Logs')
   })
 
-  it('legacy configurations show a separate Audit Logs link immediately after Usage Logs', () => {
+  it('legacy configurations keep Audit Logs under API Management after Usage Logs', () => {
     const { result } = sidebarFor(
       { console: { enabled: true, log: true } },
       { console: { enabled: true, log: true } }
     )
-    const items =
-      result.current.find((group) => group.id === 'general')?.items ?? []
-    const usageIndex = items.findIndex((item) => item.title === 'Usage Logs')
-    expect(items[usageIndex + 1]).toMatchObject({
-      title: 'Audit Logs',
-      url: '/usage-logs/audit',
-    })
-    const selected = items.filter((item) =>
-      checkIsActive('/usage-logs/audit', item)
-    )
+    const sub = collapsibleSubTitles(result.current, 'API Management')
+    const usageIndex = sub.indexOf('Usage Logs')
+    expect(sub.indexOf('Audit Logs')).toBeGreaterThan(usageIndex)
+    const apiMgmt = result.current
+      .flatMap((group) => group.items)
+      .find((item) => item.title === 'API Management')
+    const selected =
+      apiMgmt && 'items' in apiMgmt && apiMgmt.items
+        ? apiMgmt.items.filter((item) =>
+            checkIsActive('/usage-logs/audit', item)
+          )
+        : []
     expect(selected.map((item) => item.title)).toEqual(['Audit Logs'])
   })
 
@@ -163,19 +170,13 @@ describe('audit log sidebar entry', () => {
     'admin and personal visibility rules can hide Audit Logs (%j, %j)',
     (admin, user) => {
       const { result } = sidebarFor(admin, user)
-      expect(
-        result.current
-          .flatMap((group) => group.items)
-          .some((item) => item.title === 'Audit Logs')
-      ).toBe(false)
+      expect(flatItemTitles(result.current)).not.toContain('Audit Logs')
     }
   )
 
   it('hiding Usage Logs does not hide the independently configured Audit Logs entry', () => {
     const { result } = sidebarFor({ console: { enabled: true, log: false } })
-    const titles = result.current
-      .flatMap((group) => group.items)
-      .map((item) => item.title)
+    const titles = flatItemTitles(result.current)
     expect(titles).not.toContain('Usage Logs')
     expect(titles).toContain('Audit Logs')
   })

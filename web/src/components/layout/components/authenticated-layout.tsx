@@ -42,7 +42,7 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
           className='authenticated-shell flex-col bg-[var(--shell-canvas)]'
         >
           <SkipToMain />
-          <AppHeader />
+          <AppHeader showProfileDropdown={false} />
           <div className='flex min-h-0 w-full flex-1'>
             <AppSidebar />
             <SidebarInset

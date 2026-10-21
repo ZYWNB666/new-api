@@ -54,22 +54,19 @@ describe('home hero', () => {
       'Doubao',
       'Kimi',
       'MiniMax',
-      'Baichuan',
-      'ERNIE',
     ]) {
       expect(screen.getByText(model)).toBeInTheDocument()
     }
   })
 
-  it('展示可核实能力及连接示意，并提供注册和文档入口', () => {
-    render(<Hero />)
-    expect(screen.getByText('Your applications')).toBeVisible()
+  it('展示网关核心视觉与统计卡，并提供注册和文档入口', () => {
+    const { container } = render(<Hero />)
     expect(
       screen.getAllByText('Multi-protocol Compatible').length
     ).toBeGreaterThan(0)
-    expect(
-      screen.queryByText(/99\.99%|50ms|50\+|100\+/)
-    ).not.toBeInTheDocument()
+    expect(screen.getByText('100+')).toBeInTheDocument()
+    expect(screen.getByText('99.9%')).toBeInTheDocument()
+    expect(screen.getByText('<100ms')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Documentation' })
     ).toHaveAttribute('href', '/docs')
@@ -77,7 +74,10 @@ describe('home hero', () => {
       'href',
       '/sign-up'
     )
-    expect(screen.getByText('Qwen').closest('.landing-model-strip')).not.toBeNull()
+    expect(container.querySelector('.hero-orbit-core')).not.toBeNull()
+    expect(container.querySelectorAll('.hero-float-card').length).toBeGreaterThan(
+      0
+    )
   })
 
   it('keeps the authenticated dashboard action', () => {

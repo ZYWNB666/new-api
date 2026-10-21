@@ -23,7 +23,7 @@ import {
   createRouter,
   RouterProvider,
 } from '@tanstack/react-router'
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -33,7 +33,6 @@ import { useSystemConfigStore } from '@/stores/system-config-store'
 
 import { OverviewDashboard } from '../overview-dashboard'
 
-const storageKey = 'dashboard_overview_setup_guide_expanded'
 let client: QueryClient
 let keyLookupError: Error | null
 
@@ -136,8 +135,8 @@ describe('overview setup guide', () => {
     for (const name of ['API Keys', 'Channels', 'Usage Logs', 'Pricing']) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
     }
-    const panel = document.getElementById(
-      toggle.getAttribute('aria-controls') ?? ''
+    const panel = document.querySelector(
+      `[id="${toggle.getAttribute('aria-controls') ?? ''}"]`
     )
     expect(panel).toBeInTheDocument()
     expect(panel).not.toBeVisible()
@@ -153,7 +152,9 @@ describe('overview setup guide', () => {
     await user.keyboard('{Enter}')
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
     expect(
-      document.getElementById(toggle.getAttribute('aria-controls') ?? '')
+      document.querySelector(
+        `[id="${toggle.getAttribute('aria-controls') ?? ''}"]`
+      )
     ).toBeVisible()
     expect(
       screen.getByRole('heading', {
@@ -191,56 +192,6 @@ describe('overview setup guide', () => {
       await screen.findByRole('button', { name: 'Setup guide' })
     ).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByText('Setup guide complete')).not.toBeInTheDocument()
-  })
-
-  it('keeps the existing progress banner when an incomplete guide is manually collapsed', async () => {
-    const user = userEvent.setup()
-    useAuthStore
-      .getState()
-      .auth.setUser({ id: 1, username: 'new-user', role: 1 })
-    await renderOverview()
-
-    await user.click(
-      await screen.findByRole('button', { name: 'Hide setup guide' })
-    )
-    expect(screen.getByText('Setup progress: 1/3')).toBeVisible()
-    expect(
-      screen.getByText('Setup guide is collapsed. Expand it anytime.')
-    ).toBeVisible()
-    expect(screen.getByRole('button', { name: 'API Keys' })).toBeVisible()
-    expect(
-      screen.queryByRole('button', { name: 'Setup guide' })
-    ).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Show setup guide' }))
-    expect(
-      screen.getByRole('button', { name: 'Hide setup guide' })
-    ).toBeVisible()
-  })
-
-  it('removes the collapsed progress banner when the remaining setup step completes', async () => {
-    useAuthStore.getState().auth.setUser({
-      id: 1,
-      username: 'dashboard-user',
-      role: 1,
-      quota: 1000000,
-    })
-    window.localStorage.setItem(storageKey, 'collapsed')
-    await renderOverview()
-    expect(await screen.findByText('Setup progress: 2/3')).toBeVisible()
-
-    act(() => {
-      useAuthStore.getState().auth.setUser({
-        id: 1,
-        username: 'dashboard-user',
-        role: 1,
-        quota: 1000000,
-        request_count: 1,
-      })
-    })
-    expect(
-      await screen.findByRole('button', { name: 'Setup guide' })
-    ).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByText(/Setup progress:/)).not.toBeInTheDocument()
   })
 
   it('展开入门引导后概览指标仍在上，并保留充值入口且不泄露管理员渠道', async () => {
@@ -293,15 +244,14 @@ describe('overview setup guide', () => {
     expect(screen.getByText("Today's requests")).toBeVisible()
   })
 
-  it('does not show a completed setup entry when the key lookup fails', async () => {
+  it('keeps the overview focused and the guide collapsed by default even if key lookup fails', async () => {
     keyLookupError = new Error('Key lookup unavailable')
     await renderOverview()
 
-    expect(
-      await screen.findByRole('button', { name: 'Hide setup guide' })
-    ).toBeVisible()
-    expect(
-      screen.queryByRole('button', { name: 'Setup guide' })
-    ).not.toBeInTheDocument()
+    // The overview mirrors the reference dashboard: the setup guide stays
+    // collapsed by default and never auto-expands into the metrics area.
+    expect(screen.queryByText(/Setup progress:/)).not.toBeInTheDocument()
+    expect(screen.getByText('Account balance')).toBeVisible()
+    expect(screen.getByText('Usage trend')).toBeVisible()
   })
 })

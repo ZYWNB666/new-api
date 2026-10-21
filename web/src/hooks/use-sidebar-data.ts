@@ -54,24 +54,9 @@ export function useSidebarData(): SidebarData {
   return {
     navGroups: [
       {
-        id: 'chat',
-        title: t('Chat'),
-        items: [
-          {
-            title: t('Playground'),
-            url: '/playground',
-            icon: FlaskConical,
-          },
-          {
-            title: t('Chat'),
-            icon: MessageSquare,
-            type: 'chat-presets',
-          },
-        ],
-      },
-      {
-        id: 'general',
-        title: t('General'),
+        id: 'main',
+        // No group label: mirrors a compact top-level console navigation.
+        title: '',
         items: [
           {
             title: t('Overview'),
@@ -79,52 +64,79 @@ export function useSidebarData(): SidebarData {
             icon: Activity,
           },
           {
-            title: t('Dashboard'),
+            title: t('Model Playground'),
+            url: '/playground',
+            icon: FlaskConical,
+          },
+          {
+            title: t('Data Dashboard'),
             url: '/dashboard/models',
             icon: LayoutDashboard,
           },
           {
-            title: t('API Keys'),
-            url: '/keys',
+            title: t('Account Center'),
+            icon: User,
+            items: [
+              {
+                title: t('Wallet'),
+                url: '/wallet',
+                icon: Wallet,
+              },
+              {
+                title: t('Profile'),
+                url: '/profile',
+                icon: User,
+              },
+              {
+                title: t('Security & Access'),
+                url: '/security',
+                icon: ShieldCheck,
+              },
+            ],
+          },
+          {
+            title: t('API Management'),
             icon: Key,
-          },
-          {
-            title: t('Usage Logs'),
-            url: '/usage-logs/common',
-            icon: FileText,
-          },
-          {
-            title: t('Audit Logs'),
-            url: '/usage-logs/audit',
-            icon: ClipboardList,
-          },
-          {
-            title: t('Task Logs'),
-            url: '/usage-logs/task',
-            activeUrls: ['/usage-logs/drawing'],
-            configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
-            icon: ListTodo,
+            items: [
+              {
+                title: t('API Keys'),
+                url: '/keys',
+                icon: Key,
+              },
+              {
+                title: t('API Address'),
+                url: '/docs',
+                icon: PlugZap,
+              },
+              {
+                title: t('Usage Logs'),
+                url: '/usage-logs/common',
+                icon: FileText,
+              },
+              {
+                title: t('Task Logs'),
+                url: '/usage-logs/task',
+                activeUrls: ['/usage-logs/drawing'],
+                configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
+                icon: ListTodo,
+              },
+              {
+                title: t('Audit Logs'),
+                url: '/usage-logs/audit',
+                icon: ClipboardList,
+              },
+            ],
           },
         ],
       },
       {
-        id: 'personal',
-        title: t('Personal'),
+        id: 'chat',
+        title: t('Chat'),
         items: [
           {
-            title: t('Wallet'),
-            url: '/wallet',
-            icon: Wallet,
-          },
-          {
-            title: t('Profile'),
-            url: '/profile',
-            icon: User,
-          },
-          {
-            title: t('Security & Access'),
-            url: '/security',
-            icon: ShieldCheck,
+            title: t('Chat'),
+            icon: MessageSquare,
+            type: 'chat-presets',
           },
         ],
       },

@@ -64,7 +64,7 @@ export function AnnouncementsPanel() {
           <IconBadge tone='warning' size='sm'>
             <Megaphone />
           </IconBadge>
-          {t('Announcements')}
+          {t('Platform announcements')}
         </span>
       }
       description={t('Latest platform updates and notices')}
