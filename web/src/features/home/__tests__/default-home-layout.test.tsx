@@ -38,8 +38,9 @@ vi.mock('../hooks', () => ({
 }))
 vi.mock('../components', () => ({
   Hero: () => <div>Hero section</div>,
-  Features: () => <div>Features section</div>,
-  HowItWorks: () => <div>How it works section</div>,
+  Stats: () => <div>Stats section</div>,
+  ProductShowcase: () => <div>Product showcase section</div>,
+  ModelEcosystem: () => <div>Model ecosystem section</div>,
   JevShowcase: () => <div>Jev showcase section</div>,
   CTA: () => <div>CTA section</div>,
 }))
@@ -48,14 +49,49 @@ vi.mock('@/components/layout/components/footer', () => ({
 }))
 
 describe('default home layout', () => {
-  it('ends after the jev showcase section with the company footer', () => {
+  it('在 Jev 展示后显示接入操作区，并保留项目页脚', () => {
     render(<Home />)
 
     expect(screen.getByText('Hero section')).toBeInTheDocument()
-    expect(screen.getByText('Features section')).toBeInTheDocument()
-    expect(screen.getByText('How it works section')).toBeInTheDocument()
+    expect(screen.getByText('Stats section')).toBeInTheDocument()
+    expect(screen.getByText('Product showcase section')).toBeInTheDocument()
+    expect(screen.getByText('Model ecosystem section')).toBeInTheDocument()
     expect(screen.getByText('Jev showcase section')).toBeInTheDocument()
-    expect(screen.queryByText('CTA section')).not.toBeInTheDocument()
+    expect(screen.getByText('CTA section')).toBeInTheDocument()
+    expect(
+      screen
+        .getByText('Jev showcase section')
+        .compareDocumentPosition(screen.getByText('CTA section')) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      screen
+        .getByText('CTA section')
+        .compareDocumentPosition(screen.getByText('Project footer')) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      screen
+        .getByText('Hero section')
+        .compareDocumentPosition(screen.getByText('Stats section')) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      screen
+        .getByText('Stats section')
+        .compareDocumentPosition(
+          screen.getByText('Product showcase section')
+        ) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      screen
+        .getByText('Product showcase section')
+        .compareDocumentPosition(
+          screen.getByText('Model ecosystem section')
+        ) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
     expect(screen.getByText('Project footer')).toBeInTheDocument()
   })
 })

@@ -79,7 +79,20 @@ beforeEach(() => {
         return { data: { success: true, data: ['gpt-4o-mini'] } }
       case '/api/data/self':
         return { data: { success: true, data: [] } }
+      case '/api/perf-metrics/summary':
+        return { data: { success: true, data: { summary: null, models: [] } } }
       default:
+        if (url.startsWith('/api/log/self')) {
+          return {
+            data: {
+              success: true,
+              data: { items: [], total: 0, page: 1, page_size: 5 },
+            },
+          }
+        }
+        if (url.startsWith('/api/perf-metrics/summary')) {
+          return { data: { success: true, data: { summary: null, models: [] } } }
+        }
         throw new Error(`Unexpected dashboard request: ${url}`)
     }
   })
@@ -112,9 +125,12 @@ describe('overview setup guide', () => {
 
     const toggle = await screen.findByRole('button', { name: 'Setup guide' })
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    expect(
-      screen.getAllByRole('heading').map((heading) => heading.textContent)
-    ).toEqual(['Overview', 'Usage at a glance'])
+    const headings = screen
+      .getAllByRole('heading')
+      .map((heading) => heading.textContent)
+    expect(headings[0]).toBe('Overview')
+    expect(headings).toContain('Usage trend')
+    expect(headings).toContain('Quick actions')
     expect(screen.queryByText('Setup guide complete')).not.toBeInTheDocument()
     expect(screen.queryByText('Setup progress: 3/3')).not.toBeInTheDocument()
     for (const name of ['API Keys', 'Channels', 'Usage Logs', 'Pricing']) {
@@ -225,6 +241,56 @@ describe('overview setup guide', () => {
       await screen.findByRole('button', { name: 'Setup guide' })
     ).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByText(/Setup progress:/)).not.toBeInTheDocument()
+  })
+
+  it('展开入门引导后概览指标仍在上，并保留充值入口且不泄露管理员渠道', async () => {
+    const user = userEvent.setup()
+    useSystemConfigStore.getState().setConfig({
+      currency: {
+        ...useSystemConfigStore.getState().config.currency,
+        quotaDisplayType: 'CUSTOM',
+        customCurrencySymbol: 'LONG-CURRENCY-SYMBOL',
+      },
+    })
+    client.setQueryData(['status'], {
+      quota_display_type: 'CUSTOM',
+      custom_currency_symbol: 'LONG-CURRENCY-SYMBOL',
+    })
+    await renderOverview()
+    await user.click(await screen.findByRole('button', { name: 'Setup guide' }))
+    const metrics = screen.getByText('Account balance')
+    const guide = screen.getByRole('heading', {
+      name: 'Build on your API gateway in minutes',
+    })
+    expect(
+      metrics.compareDocumentPosition(guide) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(screen.getByText('LONG-CURRENCY-SYMBOL 2')).toBeVisible()
+    expect(
+      screen.getByRole('link', { name: /Top up/ })
+    ).toHaveAttribute('href', '/wallet')
+    expect(
+      screen.queryByRole('button', { name: /^Channels/ })
+    ).not.toBeInTheDocument()
+  })
+
+  it('管理员展开引导时保留渠道入口与概览指标卡', async () => {
+    const user = userEvent.setup()
+    useAuthStore.getState().auth.setUser({
+      id: 1,
+      username: 'dashboard-admin',
+      role: 10,
+      quota: 1000000,
+      used_quota: 1000,
+      request_count: 123,
+    })
+    await renderOverview()
+    await user.click(await screen.findByRole('button', { name: 'Setup guide' }))
+    expect(
+      await screen.findByRole('button', { name: /^Channels/ })
+    ).toHaveAttribute('href', '/channels')
+    expect(screen.getByText('Account balance')).toBeVisible()
+    expect(screen.getByText("Today's requests")).toBeVisible()
   })
 
   it('does not show a completed setup entry when the key lookup fails', async () => {

@@ -25,6 +25,7 @@ import {
   PricingToolbar,
   type PricingToolbarProps,
 } from '../components/pricing-toolbar'
+import { SearchBar } from '../components/search-bar'
 import type { PricingModel } from '../types'
 
 function toolbarProps(): PricingToolbarProps {
@@ -61,6 +62,45 @@ function toolbarProps(): PricingToolbarProps {
 }
 
 describe('pricing controls', () => {
+  it('使用 Ctrl 或 Command 快捷键聚焦搜索，Escape 保留条件并移除焦点', async () => {
+    const user = userEvent.setup()
+    render(
+      <SearchBar value='long-model-name' onChange={vi.fn()} onClear={vi.fn()} />
+    )
+    const search = screen.getByRole('textbox', { name: 'Search models' })
+    await user.keyboard('{Control>}k{/Control}')
+    expect(search).toHaveFocus()
+    await user.keyboard('{Escape}')
+    expect(search).not.toHaveFocus()
+    expect(search).toHaveValue('long-model-name')
+    await user.keyboard('{Meta>}k{/Meta}')
+    expect(search).toHaveFocus()
+  })
+
+  it('共享输入框保持受控搜索和清空回调，空条件时不显示清空操作', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    const onClear = vi.fn()
+    const view = render(
+      <SearchBar value='' onChange={onChange} onClear={onClear} />
+    )
+    expect(
+      screen.queryByRole('button', { name: 'Clear search' })
+    ).not.toBeInTheDocument()
+    const search = screen.getByRole('textbox', { name: 'Search models' })
+    await user.type(search, 'g')
+    expect(onChange).toHaveBeenLastCalledWith('g')
+    view.rerender(<SearchBar value='g' onChange={onChange} onClear={onClear} />)
+    expect(search).toHaveValue('g')
+    await user.click(screen.getByRole('button', { name: 'Clear search' }))
+    expect(onClear).toHaveBeenCalledOnce()
+    view.rerender(<SearchBar value='' onChange={onChange} onClear={onClear} />)
+    expect(search).toHaveValue('')
+    expect(
+      screen.queryByRole('button', { name: 'Clear search' })
+    ).not.toBeInTheDocument()
+  })
+
   it('counts each model once per filter and updates counts when the catalog changes', () => {
     const props = toolbarProps()
     const base: PricingModel = {

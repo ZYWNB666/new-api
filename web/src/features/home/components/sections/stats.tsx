@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 import { useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { AnimateInView } from '@/components/animate-in-view'
+
 interface CounterProps {
   end: number
   suffix?: string
@@ -108,10 +110,12 @@ export function Stats(_props: StatsProps) {
     <div className='border-border/40 bg-muted/10 relative z-10 border-y'>
       <div className='mx-auto max-w-6xl px-6 py-10 md:py-12'>
         <div className='grid grid-cols-2 gap-8 md:grid-cols-4 md:gap-12'>
-          {stats.map((s) => (
-            <div
+          {stats.map((s, i) => (
+            <AnimateInView
               key={s.label}
-              className='flex flex-col items-center text-center'
+              animation='scale-in'
+              delay={i * 90}
+              className='landing-motion-card flex flex-col items-center rounded-2xl border border-transparent px-3 py-4 text-center'
             >
               <span className='text-2xl font-bold tracking-tight md:text-3xl'>
                 <Counter end={s.end} suffix={s.suffix} decimals={s.decimals} />
@@ -119,7 +123,7 @@ export function Stats(_props: StatsProps) {
               <span className='text-muted-foreground mt-1.5 text-xs'>
                 {s.label}
               </span>
-            </div>
+            </AnimateInView>
           ))}
         </div>
       </div>

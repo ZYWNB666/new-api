@@ -34,7 +34,7 @@ vi.mock('@/hooks/use-status', () => ({
 }))
 
 vi.mock('@/hooks/use-system-config', () => ({
-  useSystemConfig: () => ({ systemName: 'Example AI' }),
+  useSystemConfig: () => ({ systemName: 'Example AI', logo: '/logo.png' }),
 }))
 
 describe('home hero', () => {
@@ -50,32 +50,34 @@ describe('home hero', () => {
     for (const model of [
       'Qwen',
       'DeepSeek',
-      'GLM',
+      'Zhipu GLM',
       'Doubao',
       'Kimi',
-      'Yi',
+      'MiniMax',
       'Baichuan',
-      'Spark',
+      'ERNIE',
     ]) {
       expect(screen.getByText(model)).toBeInTheDocument()
     }
   })
 
-  it('shows capability counts instead of live reliability claims', () => {
+  it('展示可核实能力及连接示意，并提供注册和文档入口', () => {
     render(<Hero />)
-
-    expect(screen.getAllByText('50+')).toHaveLength(2)
-    expect(screen.getByText('100+')).toBeInTheDocument()
-    expect(screen.getByText('upstream services integrated')).toBeInTheDocument()
-    expect(screen.getByText('model billing support')).toBeInTheDocument()
-    expect(screen.getByText('compatible API routes')).toBeInTheDocument()
-    expect(screen.queryByText(/99\.99%|50ms/)).not.toBeInTheDocument()
+    expect(screen.getByText('Your applications')).toBeVisible()
     expect(
-      screen.getByText('100+').closest('.landing-metric-card')
-    ).not.toBeNull()
-    expect(screen.getByText('Qwen').parentElement).toHaveClass(
-      'landing-model-strip'
+      screen.getAllByText('Multi-protocol Compatible').length
+    ).toBeGreaterThan(0)
+    expect(
+      screen.queryByText(/99\.99%|50ms|50\+|100\+/)
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Documentation' })
+    ).toHaveAttribute('href', '/docs')
+    expect(screen.getByRole('button', { name: /Get Started/ })).toHaveAttribute(
+      'href',
+      '/sign-up'
     )
+    expect(screen.getByText('Qwen').closest('.landing-model-strip')).not.toBeNull()
   })
 
   it('keeps the authenticated dashboard action', () => {
@@ -87,7 +89,7 @@ describe('home hero', () => {
     expect(screen.queryByRole('button', { name: /Get Started/ })).toBeNull()
   })
 
-  it('renders decorative green wave layers behind the hero content', () => {
+  it('保留带无障碍隐藏属性的装饰波纹', () => {
     const { container } = render(<Hero />)
     const waves = container.querySelectorAll('.landing-wave')
 

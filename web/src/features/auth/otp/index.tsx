@@ -25,7 +25,7 @@ import { OtpForm } from './components/otp-form'
 export function Otp() {
   const { t } = useTranslation()
   return (
-    <AuthLayout>
+    <AuthLayout compact>
       <div className='w-full space-y-8'>
         <div className='space-y-3'>
           <h2 className='text-center text-2xl font-semibold tracking-tight sm:text-left'>

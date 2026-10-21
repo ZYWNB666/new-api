@@ -44,7 +44,7 @@ vi.mock('@/hooks/use-status', () => ({
   useStatus: () => ({ status: null }),
 }))
 
-describe('public footer company copyright', () => {
+describe('public footer brand copyright', () => {
   beforeEach(() => {
     systemConfig.systemName = 'Example AI'
     systemConfig.logo = '/example-logo.png'
@@ -52,27 +52,23 @@ describe('public footer company copyright', () => {
     systemConfig.demoSiteEnabled = false
   })
 
-  it('shows the configured brand and company at the bottom of the default footer', () => {
+  it('shows the configured brand at the bottom of the default footer', () => {
     render(<Footer />)
 
     const year = new Date().getFullYear()
     expect(
       screen.getByText(
-        new RegExp(
-          `© ${year} Example AI · 上海纳维智算科技有限公司\\. footer\\.defaultCopyright`
-        )
+        new RegExp(`© ${year} Example AI\\. footer\\.defaultCopyright`)
       )
     ).toBeInTheDocument()
   })
 
-  it('keeps the configured brand and company beside custom footer content', () => {
+  it('keeps the configured brand beside custom footer content', () => {
     systemConfig.footerHtml = '<p>Custom legal notice</p>'
 
     render(<Footer />)
 
     expect(screen.getByText('Custom legal notice')).toBeInTheDocument()
-    expect(
-      screen.getByText(/Example AI · 上海纳维智算科技有限公司/)
-    ).toBeInTheDocument()
+    expect(screen.getByText(/Example AI/)).toBeInTheDocument()
   })
 })

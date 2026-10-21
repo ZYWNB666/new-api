@@ -16,7 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { ComponentProps, ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -115,14 +122,69 @@ describe('reference-informed shell layout', () => {
     )
 
     const [navigation] = screen.getAllByRole('navigation')
-    expect(navigation).toHaveClass('h-12', 'rounded-full')
+    expect(navigation).toHaveClass('min-h-14', 'rounded-2xl')
 
     Object.defineProperty(window, 'scrollY', { configurable: true, value: 24 })
     fireEvent.scroll(window)
 
     await waitFor(() => {
-      expect(navigation).toHaveClass('h-12', 'rounded-full')
+      expect(navigation).toHaveClass('min-h-14', 'rounded-2xl')
     })
+  })
+
+  it('移动菜单关闭时不可交互，Escape 关闭后恢复焦点和原滚动设置', async () => {
+    const user = userEvent.setup()
+    document.body.style.overflow = 'auto'
+    const view = render(
+      <PublicHeader navLinks={[{ title: 'Documentation', href: '/docs' }]} />
+    )
+    const toggle = screen.getByRole('button', {
+      name: 'Toggle navigation menu',
+    })
+    const menu = document.querySelector<HTMLElement>(
+      `#${toggle.getAttribute('aria-controls')}`
+    )
+    if (!menu) {
+      throw new Error('Missing controlled mobile navigation')
+    }
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(menu).toHaveAttribute('inert')
+    expect(menu).toHaveAttribute('aria-hidden', 'true')
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(menu).not.toHaveAttribute('inert')
+    expect(document.body.style.overflow).toBe('hidden')
+    expect(within(menu).getByRole('button', { name: 'Language' })).toBeVisible()
+    expect(
+      within(menu).getByRole('button', { name: 'Notifications' })
+    ).toBeVisible()
+    within(menu).getByRole('link', { name: 'Documentation' }).focus()
+    await user.keyboard('{Escape}')
+    expect(toggle).toHaveFocus()
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(document.body.style.overflow).toBe('auto')
+    view.unmount()
+    document.body.style.overflow = ''
+  })
+
+  it('选择移动文档导航后关闭菜单', async () => {
+    const user = userEvent.setup()
+    render(
+      <PublicHeader navLinks={[{ title: 'Documentation', href: '/docs' }]} />
+    )
+    const toggle = screen.getByRole('button', {
+      name: 'Toggle navigation menu',
+    })
+    await user.click(toggle)
+    const menu = document.querySelector<HTMLElement>(
+      `#${toggle.getAttribute('aria-controls')}`
+    )
+    if (!menu) {
+      throw new Error('Missing controlled mobile navigation')
+    }
+    await user.click(within(menu).getByRole('link', { name: 'Documentation' }))
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(menu).toHaveAttribute('inert')
   })
 
   it('renders authenticated content in the bordered rounded workspace', () => {

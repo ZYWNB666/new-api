@@ -39,7 +39,7 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
       <SearchProvider>
         <SidebarProvider
           defaultOpen={defaultOpen}
-          className='flex-col bg-[var(--shell-canvas)]'
+          className='authenticated-shell flex-col bg-[var(--shell-canvas)]'
         >
           <SkipToMain />
           <AppHeader />

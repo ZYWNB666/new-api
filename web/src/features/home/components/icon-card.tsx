@@ -23,25 +23,34 @@ interface IconCardProps {
   iconName: string
   size?: number
   className?: string
+  label?: string
 }
 
 /**
  * Reusable icon card component with glass morphism effect
  */
-export function IconCard({ iconName, size = 32, className }: IconCardProps) {
+export function IconCard({
+  iconName,
+  size = 32,
+  className,
+  label,
+}: IconCardProps) {
   return (
     <div
       className={cn(
-        'glass-morphism group/card border-border/50 dark:border-border/20',
+        'bg-card group/card border-border/70',
         'relative overflow-hidden rounded-2xl border p-5',
-        'transition-all duration-500 hover:scale-105',
+        'transition-colors hover:border-primary/40',
         className
       )}
     >
-      <div className='absolute -top-8 left-1/2 h-16 w-32 -translate-x-1/2 rounded-full bg-radial from-amber-500/10 to-amber-500/0 opacity-0 blur-xl transition-opacity duration-500 group-hover/card:opacity-100' />
+      <div className='from-primary/10 to-primary/0 absolute -top-8 left-1/2 h-16 w-32 -translate-x-1/2 rounded-full bg-radial opacity-0 blur-xl transition-opacity duration-500 group-hover/card:opacity-100' />
       <div className='relative flex items-center justify-center'>
         {getLobeIcon(iconName, size)}
       </div>
+      {label && (
+        <p className='mt-2 truncate text-center text-xs font-medium'>{label}</p>
+      )}
     </div>
   )
 }

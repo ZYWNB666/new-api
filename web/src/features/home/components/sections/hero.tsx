@@ -22,21 +22,25 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { useSystemConfig } from '@/hooks/use-system-config'
+import { getLobeIcon } from '@/lib/lobe-icon'
+import { cn } from '@/lib/utils'
+
+import { GatewayVisual } from '../gateway-visual'
 
 interface HeroProps {
   className?: string
   isAuthenticated?: boolean
 }
 
-const MODEL_NAMES = [
-  'Qwen',
-  'DeepSeek',
-  'GLM',
-  'Doubao',
-  'Kimi',
-  'Yi',
-  'Baichuan',
-  'Spark',
+const MODELS = [
+  { name: 'Qwen', icon: 'Qwen.Color' },
+  { name: 'DeepSeek', icon: 'DeepSeek.Color' },
+  { name: 'Zhipu GLM', icon: 'Zhipu.Color' },
+  { name: 'Doubao', icon: 'Doubao.Color' },
+  { name: 'Kimi', icon: 'Moonshot.Color' },
+  { name: 'MiniMax', icon: 'MiniMax.Color' },
+  { name: 'Baichuan', icon: 'Baichuan.Color' },
+  { name: 'ERNIE', icon: 'Wenxin.Color' },
 ] as const
 
 export function Hero(props: HeroProps) {
@@ -44,13 +48,18 @@ export function Hero(props: HeroProps) {
   const { systemName } = useSystemConfig()
 
   return (
-    <section className='relative z-10 overflow-hidden px-4 pt-28 pb-16 sm:px-6 md:pt-36 md:pb-24'>
+    <section
+      className={cn(
+        'public-surface relative z-10 overflow-hidden px-4 pt-28 pb-12 sm:px-6 md:pt-36 md:pb-20',
+        props.className
+      )}
+    >
       <div
         aria-hidden
         className='pointer-events-none absolute inset-x-0 top-0 -z-10 h-[34rem] opacity-70 dark:opacity-25'
         style={{
           background:
-            'radial-gradient(ellipse 58% 52% at 50% 0%, color-mix(in oklch, var(--success) 32%, transparent) 0%, transparent 72%)',
+            'radial-gradient(ellipse 58% 52% at 50% 0%, color-mix(in oklch, var(--primary) 32%, transparent) 0%, transparent 72%)',
         }}
       />
       <div
@@ -62,15 +71,15 @@ export function Hero(props: HeroProps) {
         className='landing-wave landing-wave-alt pointer-events-none absolute top-[6rem] -z-10 h-[14rem] rounded-[100%] opacity-80 dark:opacity-35'
       />
 
-      <div className='mx-auto flex max-w-6xl flex-col items-center text-center'>
-        <div className='flex flex-col items-center'>
+      <div className='mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-[1.1fr_1fr] lg:gap-12'>
+        <div className='flex min-w-0 flex-col items-start text-start'>
           <div
-            className='landing-animate-fade-up border-success/20 bg-success/5 text-success mb-5 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-semibold opacity-0 shadow-xs'
+            className='landing-animate-fade-up border-primary/20 bg-primary/5 text-primary mb-5 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-semibold opacity-0 shadow-xs'
             style={{ animationDelay: '0ms' }}
           >
             <span className='relative flex size-1.5'>
-              <span className='bg-success absolute inline-flex h-full w-full animate-ping rounded-full opacity-60' />
-              <span className='bg-success relative inline-flex size-1.5 rounded-full' />
+              <span className='bg-primary absolute inline-flex h-full w-full rounded-full opacity-60 motion-safe:animate-ping' />
+              <span className='bg-primary relative inline-flex size-1.5 rounded-full' />
             </span>
             <span>{t('AI Application Infrastructure Foundation')}</span>
           </div>
@@ -80,7 +89,7 @@ export function Hero(props: HeroProps) {
             style={{ animationDelay: '60ms' }}
           >
             <span className='block'>{systemName}</span>
-            <span className='text-success mt-1 block'>
+            <span className='text-primary mt-1 block'>
               {t('Vast Range of AI Models')}
             </span>
           </h1>
@@ -92,15 +101,9 @@ export function Hero(props: HeroProps) {
               'Access a vast selection of models via a standard, unified API protocol. Power AI applications, manage digital assets, and connect the Future.'
             )}
           </p>
-          <p
-            className='landing-animate-fade-up text-muted-foreground/60 mt-2 text-sm opacity-0'
-            style={{ animationDelay: '140ms' }}
-          >
-            {t('Operated by 上海纳维智算科技有限公司')}
-          </p>
 
           <div
-            className='landing-animate-fade-up mt-7 flex flex-wrap items-center justify-center gap-3 opacity-0'
+            className='landing-animate-fade-up mt-7 flex flex-wrap items-center gap-3 opacity-0'
             style={{ animationDelay: '180ms' }}
           >
             {props.isAuthenticated ? (
@@ -136,37 +139,41 @@ export function Hero(props: HeroProps) {
                 </Button>
               </>
             )}
+            <Button
+              variant='ghost'
+              className='h-11 px-3'
+              render={<Link to='/docs' />}
+            >
+              {t('Documentation')}
+            </Button>
+          </div>
+          <div className='text-muted-foreground mt-7 flex flex-wrap gap-4 text-xs'>
+            <span>{t('Multi-protocol Compatible')}</span>
+            <span>{t('Transparent Billing')}</span>
+            <span>{t('Open Source')}</span>
           </div>
         </div>
-
+        <GatewayVisual className='w-full max-w-xl justify-self-center' />
+      </div>
+      <div className='mx-auto mt-12 max-w-6xl'>
+        <p className='text-muted-foreground mb-4 text-center text-xs font-medium'>
+          {t('Aggregating the leading AI model ecosystem')}
+        </p>
         <div
-          className='landing-model-strip landing-animate-fade-up border-border/70 bg-background/90 mt-16 flex w-full flex-wrap items-center justify-center gap-2 rounded-[1.75rem] border px-4 py-4 opacity-0 shadow-[0_16px_40px_-32px_rgba(15,23,42,0.45)] sm:justify-between sm:px-6'
+          className='landing-model-strip landing-animate-fade-up border-border/70 bg-card/90 grid w-full grid-cols-4 gap-2 rounded-[1.75rem] border px-4 py-4 opacity-0 shadow-[0_16px_40px_-32px_rgba(15,23,42,0.45)] sm:grid-cols-8 sm:px-6'
           style={{ animationDelay: '240ms' }}
         >
-          {MODEL_NAMES.map((model) => (
-            <span
-              key={model}
-              className='bg-muted text-foreground rounded-full px-4 py-2 text-sm font-semibold'
-            >
-              {model}
-            </span>
-          ))}
-        </div>
-
-        <div className='mt-8 grid w-full max-w-2xl grid-cols-1 gap-3 sm:grid-cols-3'>
-          {[
-            ['50+', t('upstream services integrated')],
-            ['100+', t('model billing support')],
-            ['50+', t('compatible API routes')],
-          ].map(([value, label]) => (
+          {MODELS.map((model) => (
             <div
-              key={label}
-              className='landing-motion-card landing-metric-card border-border/80 bg-background rounded-2xl border px-5 py-5 shadow-xs'
+              key={model.name}
+              className='landing-motion-card bg-muted/60 flex flex-col items-center justify-center gap-1.5 rounded-xl border border-transparent px-2 py-3'
             >
-              <div className='text-success text-3xl font-bold tracking-tight'>
-                {value}
-              </div>
-              <div className='text-muted-foreground mt-1 text-sm'>{label}</div>
+              <span className='landing-card-icon flex items-center justify-center'>
+                {getLobeIcon(model.icon, 26)}
+              </span>
+              <span className='text-foreground text-[11px] font-semibold'>
+                {model.name}
+              </span>
             </div>
           ))}
         </div>

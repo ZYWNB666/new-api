@@ -20,19 +20,23 @@ import { cn } from '@/lib/utils'
 
 interface ConnectionLineProps {
   direction?: 'left' | 'right'
+  className?: string
 }
 
 /**
  * Connection line between gateway and icon columns
  */
-export function ConnectionLine({ direction = 'left' }: ConnectionLineProps) {
+export function ConnectionLine({
+  direction = 'left',
+  className,
+}: ConnectionLineProps) {
   const gradientClass =
     direction === 'left'
-      ? 'from-amber-500/60 to-amber-500/20'
-      : 'from-amber-500/20 to-amber-500/60'
+      ? 'from-primary/60 to-primary/20'
+      : 'from-primary/20 to-primary/60'
 
   return (
-    <div className='hidden lg:block'>
+    <div aria-hidden='true' className={cn('hidden lg:block', className)}>
       <div className={cn('h-[2px] w-24 bg-gradient-to-r', gradientClass)} />
     </div>
   )

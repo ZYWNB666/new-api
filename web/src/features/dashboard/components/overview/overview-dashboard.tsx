@@ -66,23 +66,21 @@ import {
 import { AnnouncementsPanel } from './announcements-panel'
 import { ApiInfoPanel } from './api-info-panel'
 import { FAQPanel } from './faq-panel'
+import { ModelInsights } from './model-insights'
+import { OverviewMetrics } from './overview-metrics'
 import { PerformanceHealthPanel } from './performance-health-panel'
-import { SummaryCards } from './summary-cards'
+import { QuickActionsPanel } from './quick-actions-panel'
+import { RecentCallsPanel } from './recent-calls-panel'
 import { UptimePanel } from './uptime-panel'
+import {
+  useOverviewData,
+  type TrendMetric,
+  type TrendRange,
+} from './use-overview-data'
+import { UsageTrendPanel } from './usage-trend-panel'
 
 const SETUP_GUIDE_VISIBILITY_STORAGE_KEY =
   'dashboard_overview_setup_guide_expanded'
-
-const SETUP_GUIDE_CODE_PATTERN = [
-  'const request = await client.responses.create({',
-  "  model: 'gpt-4.1-mini',",
-  "  input: 'Start routing traffic',",
-  '})',
-  '',
-  'if (request.output_text) {',
-  '  console.log(request.output_text)',
-  '}',
-].join('\n')
 
 type DashboardActionPath =
   | '/keys'
@@ -185,39 +183,13 @@ function buildCurlCommand(args: {
 
 function SetupGuideBackdrop(props: { compact?: boolean }) {
   return (
-    <>
-      <div
-        className={cn(
-          'pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_48%_120%_at_78%_0%,color-mix(in_oklch,var(--overview-accent-1)_14%,transparent)_0%,transparent_62%),linear-gradient(112deg,color-mix(in_oklch,var(--card)_94%,var(--overview-accent-2)_6%)_0%,color-mix(in_oklch,var(--card)_94%,var(--overview-accent-3)_6%)_48%,color-mix(in_oklch,var(--background)_90%,var(--overview-accent-1)_10%)_100%)] dark:opacity-60',
-          props.compact
-            ? '[mask-image:linear-gradient(90deg,black_0%,black_48%,transparent_74%)] opacity-55'
-            : 'opacity-85'
-        )}
-        aria-hidden='true'
-      />
-      <div
-        className={cn(
-          'text-foreground/5 dark:text-foreground/8 pointer-events-none absolute inset-y-0 right-0 hidden overflow-hidden font-mono sm:block',
-          props.compact ? 'w-1/2 opacity-45' : 'w-[58%] opacity-75'
-        )}
-        aria-hidden='true'
-      >
-        <pre
-          className={cn(
-            'absolute right-3 [mask-image:linear-gradient(90deg,transparent_0%,black_30%,black_82%,transparent_100%)] text-right tracking-[0.38em] whitespace-pre',
-            props.compact
-              ? '-top-6 text-[9px] leading-4'
-              : 'top-1 text-[11px] leading-5'
-          )}
-        >
-          {SETUP_GUIDE_CODE_PATTERN}
-        </pre>
-      </div>
-      <div
-        className='from-background/35 to-background/70 dark:from-background/20 dark:to-background/80 pointer-events-none absolute inset-0 bg-linear-to-b via-transparent'
-        aria-hidden='true'
-      />
-    </>
+    <div
+      className={cn(
+        'pointer-events-none absolute inset-0 bg-primary/5',
+        props.compact && 'opacity-50'
+      )}
+      aria-hidden='true'
+    />
   )
 }
 
@@ -329,15 +301,6 @@ function RequestPreview(props: {
       transition={MOTION_TRANSITION.slow}
       className='bg-background/75 relative overflow-hidden rounded-2xl border p-3 shadow-sm backdrop-blur'
     >
-      {!shouldReduceMotion && (
-        <motion.div
-          className='via-foreground/30 pointer-events-none absolute inset-x-0 top-0 h-px bg-linear-to-r from-transparent to-transparent'
-          animate={{ x: ['-100%', '100%'] }}
-          transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
-          aria-hidden='true'
-        />
-      )}
-
       <div className='flex items-center justify-between gap-3 border-b pb-3'>
         <div className='flex min-w-0 items-center gap-2'>
           <IconBadge tone='info'>
@@ -429,7 +392,7 @@ function QuickActionItem(props: { action: QuickAction }) {
       className='h-auto justify-start rounded-xl px-3 py-3 text-left'
       render={<Link to={props.action.to} />}
     >
-      <span className='bg-muted flex size-9 shrink-0 items-center justify-center rounded-lg'>
+      <span className='bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-lg'>
         <Icon className='size-4' aria-hidden='true' />
       </span>
       <span className='flex min-w-0 flex-1 flex-col gap-0.5'>
@@ -615,7 +578,7 @@ export function OverviewDashboard() {
   const setupGuideExpanded =
     manualSetupGuideExpanded ?? (setupStatusReady && !setupComplete)
   const showLeftContentPanels =
-    isAdmin || showApiInfoPanel || showAnnouncementsPanel || showFAQPanel
+    isAdmin || showApiInfoPanel || showFAQPanel
   const showContentPanels = showLeftContentPanels || showUptimePanel
 
   const handleSetupGuideToggle = () => {
@@ -626,6 +589,10 @@ export function OverviewDashboard() {
       setupGuideToggleRef.current?.focus()
     }
   }
+
+  const [trendMetric, setTrendMetric] = useState<TrendMetric>('quota')
+  const [trendRange, setTrendRange] = useState<TrendRange>(7)
+  const overview = useOverviewData(trendRange)
 
   return (
     <SectionPageLayout>
@@ -646,7 +613,36 @@ export function OverviewDashboard() {
         )}
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='flex flex-col gap-4'>
+        <div className='flex flex-col gap-5'>
+          <OverviewMetrics
+            todayQuota={overview.todayQuota}
+            todayRequests={overview.todayRequests}
+            todayTokens={overview.todayTokens}
+            successRate={overview.platformSuccessRate}
+            loading={overview.loading}
+          />
+          <div className='grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]'>
+            <UsageTrendPanel
+              data={overview.trend}
+              metric={trendMetric}
+              range={trendRange}
+              loading={overview.loading}
+              onMetricChange={setTrendMetric}
+              onRangeChange={setTrendRange}
+            />
+            <QuickActionsPanel />
+          </div>
+          <ModelInsights
+            topModels={overview.topModels}
+            quotaShare={overview.modelQuotaShare}
+          />
+          <div className='grid grid-cols-1 gap-4 lg:grid-cols-2'>
+            <RecentCallsPanel
+              calls={overview.recentCalls}
+              loading={overview.loading}
+            />
+            {showAnnouncementsPanel && <AnnouncementsPanel />}
+          </div>
           <div id={setupGuideId} hidden={!setupGuideExpanded}>
             {setupGuideExpanded && (
               <CardStaggerContainer className='grid items-stretch gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]'>
@@ -787,8 +783,6 @@ export function OverviewDashboard() {
             </CardStaggerContainer>
           )}
 
-          <SummaryCards />
-
           {showContentPanels && (
             <CardStaggerContainer
               className={cn(
@@ -802,10 +796,7 @@ export function OverviewDashboard() {
                 <div
                   className={cn(
                     'grid min-w-0 grid-cols-1 gap-4',
-                    (showApiInfoPanel ||
-                      showAnnouncementsPanel ||
-                      showFAQPanel) &&
-                      'lg:grid-cols-2'
+                    (showApiInfoPanel || showFAQPanel) && 'lg:grid-cols-2'
                   )}
                 >
                   {isAdmin && (
@@ -816,11 +807,6 @@ export function OverviewDashboard() {
                   {showApiInfoPanel && (
                     <CardStaggerItem>
                       <ApiInfoPanel />
-                    </CardStaggerItem>
-                  )}
-                  {showAnnouncementsPanel && (
-                    <CardStaggerItem>
-                      <AnnouncementsPanel />
                     </CardStaggerItem>
                   )}
                   {showFAQPanel && (

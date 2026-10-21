@@ -41,10 +41,8 @@ export function Features(_props: FeaturesProps) {
     {
       id: 'fast',
       num: '01',
-      title: t('Lightning Fast'),
-      desc: t(
-        'Optimized network architecture ensures millisecond response times'
-      ),
+      title: t('Multi-protocol Compatible'),
+      desc: t('Compatible API routes for common AI application workflows'),
       span: 'md:col-span-2',
       icon: <Zap className='size-4 text-blue-400' />,
       visual: (
@@ -102,8 +100,8 @@ export function Features(_props: FeaturesProps) {
     {
       id: 'global',
       num: '03',
-      title: t('Global Coverage'),
-      desc: t('Multi-region deployment for stable global access'),
+      title: t('Load Balancing'),
+      desc: t('Support for high concurrency with automatic load balancing'),
       span: 'md:col-span-1',
       icon: <Globe className='size-4 text-violet-400' />,
       visual: (
@@ -180,7 +178,7 @@ export function Features(_props: FeaturesProps) {
   ]
 
   return (
-    <section className='relative z-10 px-6 py-24 md:py-32'>
+    <section className='relative z-10 px-4 py-16 sm:px-6 md:py-24'>
       <div className='mx-auto max-w-6xl'>
         <AnimateInView className='mb-16 max-w-lg'>
           <p className='text-muted-foreground mb-3 text-xs font-medium tracking-widest uppercase'>
@@ -194,19 +192,20 @@ export function Features(_props: FeaturesProps) {
         </AnimateInView>
 
         {/* Bento grid */}
-        <div className='border-border/40 bg-border/40 grid gap-px overflow-hidden rounded-xl border md:grid-cols-3'>
+        <div className='grid gap-4 md:grid-cols-3'>
           {features.map((f, i) => (
             <AnimateInView
               key={f.id}
               delay={i * 100}
               animation='scale-in'
-              className={`landing-motion-card bg-background group hover:bg-muted/20 p-7 transition-colors duration-300 md:p-8 ${f.span}`}
+              className={`landing-motion-card bg-card group border-border/80 rounded-2xl border p-6 shadow-xs transition-colors duration-300 md:p-8 ${f.span}`}
             >
               <div className='mb-3 flex items-center gap-3'>
                 <span className='border-border/40 bg-muted text-muted-foreground flex size-7 items-center justify-center rounded-md border text-[10px] font-semibold tabular-nums'>
                   {f.num}
                 </span>
-                <h3 className='text-sm font-semibold'>{f.title}</h3>
+                <span aria-hidden='true'>{f.icon}</span>
+                <h3 className='text-base font-semibold'>{f.title}</h3>
               </div>
               <p className='text-muted-foreground text-sm leading-relaxed'>
                 {f.desc}
@@ -217,13 +216,13 @@ export function Features(_props: FeaturesProps) {
         </div>
 
         {/* Additional features row */}
-        <div className='mt-12 grid grid-cols-2 gap-8 md:grid-cols-4 md:gap-12'>
+        <div className='mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4'>
           {additionalFeatures.map((f, i) => (
             <AnimateInView
               key={f.title}
               delay={i * 100}
               animation='fade-up'
-              className='landing-motion-card border-border/40 bg-background/70 flex flex-col items-center rounded-2xl border p-5 text-center'
+              className='landing-motion-card border-border/40 bg-card flex flex-col items-center rounded-2xl border p-5 text-center'
             >
               <div className='text-muted-foreground border-border/50 bg-muted/30 group-hover:text-foreground mb-3 flex size-12 items-center justify-center rounded-xl border transition-colors'>
                 {f.icon}

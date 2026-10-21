@@ -216,7 +216,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     priceSummary = prices.map((price) => (
       <div key={price.type} className='flex min-w-0 flex-col gap-1'>
         <span className='text-muted-foreground text-xs'>{price.label}</span>
-        <span className='font-mono text-sm font-semibold tabular-nums'>
+        <span className='font-mono text-sm font-semibold break-all tabular-nums'>
           {formatPrice(
             props.model,
             price.type,
@@ -236,7 +236,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   } else {
     priceSummary = (
       <div className='col-span-full flex min-w-0 flex-col gap-1'>
-        <span className='font-mono text-sm font-semibold tabular-nums'>
+        <span className='font-mono text-sm font-semibold break-all tabular-nums'>
           {formatRequestPrice(
             props.model,
             showRechargePrice,
@@ -254,11 +254,11 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   }
 
   return (
-    <Card className='hover:ring-foreground/20 h-full min-w-0 gap-3 transition-colors'>
+    <Card className='hover:ring-primary/35 h-full min-w-0 gap-4 rounded-2xl transition-colors'>
       <CardHeader className='flex flex-row items-start gap-3'>
         <div
           aria-hidden
-          className='bg-muted/50 flex size-10 shrink-0 items-center justify-center rounded-lg'
+          className='bg-primary/5 ring-primary/10 flex size-10 shrink-0 items-center justify-center rounded-xl ring-1'
         >
           {modelIcon || (
             <span className='text-muted-foreground text-sm font-bold'>
@@ -315,7 +315,7 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         <div
           role='group'
           aria-label={t('Pricing')}
-          className='mt-auto flex min-w-0 flex-col gap-1.5'
+          className='bg-muted/40 mt-auto flex min-w-0 flex-col gap-2 rounded-xl p-3'
         >
           <ModelBillingModeBadge model={props.model} appearance='caption' />
           {dynamicSummary?.providerCount && (

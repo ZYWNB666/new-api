@@ -42,7 +42,7 @@ const QUESTION_TYPES = [
   },
 ] as const
 
-const CURL_EXAMPLE = `curl /v1/decisions \\
+const CURL_EXAMPLE = `curl https://api.your-domain.com/v1/decisions \\
   -H "Authorization: Bearer <token>" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -95,7 +95,7 @@ export function JevShowcase() {
                 animation='fade-up'
                 className='landing-motion-card border-border/50 bg-background/70 flex items-center gap-4 rounded-2xl border p-5 shadow-xs'
               >
-                <div className='border-success/25 bg-success/10 text-success flex size-11 shrink-0 items-center justify-center rounded-xl border'>
+                <div className='landing-card-icon border-success/25 bg-success/10 text-success flex size-11 shrink-0 items-center justify-center rounded-xl border'>
                   {type.icon}
                 </div>
                 <div className='min-w-0'>
