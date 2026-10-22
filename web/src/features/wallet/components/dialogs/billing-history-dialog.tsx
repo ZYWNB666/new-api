@@ -45,7 +45,7 @@ import {
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { formatCurrencyFromUSD } from '@/lib/currency'
+import { formatCurrencyFromUSD, formatQuotaWithCurrency } from '@/lib/currency'
 import { formatNumber } from '@/lib/format'
 
 import { useBillingHistory } from '../../hooks/use-billing-history'
@@ -248,7 +248,9 @@ export function BillingHistoryDialog({
                             {t('Amount')}
                           </Label>
                           <div className='text-sm font-semibold'>
-                            {formatCurrencyFromUSD(record.amount, {
+                            {(record.payment_provider === 'alipay'
+                              ? formatQuotaWithCurrency
+                              : formatCurrencyFromUSD)(record.amount, {
                               digitsLarge: 2,
                               digitsSmall: 2,
                               abbreviate: false,

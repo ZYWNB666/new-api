@@ -102,6 +102,15 @@ func InitOptionMap() {
 	common.OptionMap["CreemProducts"] = setting.CreemProducts
 	common.OptionMap["CreemTestMode"] = strconv.FormatBool(setting.CreemTestMode)
 	common.OptionMap["CreemWebhookSecret"] = setting.CreemWebhookSecret
+	common.OptionMap["AlipayAppId"] = setting.AlipayAppId
+	common.OptionMap["AlipaySellerId"] = setting.AlipaySellerId
+	common.OptionMap["AlipayAppPrivateKey"] = setting.AlipayAppPrivateKey
+	common.OptionMap["AlipayPublicKey"] = setting.AlipayPublicKey
+	common.OptionMap["AlipayUnitPrice"] = strconv.FormatFloat(setting.AlipayUnitPrice, 'f', -1, 64)
+	common.OptionMap["AlipayMinTopUp"] = strconv.Itoa(setting.AlipayMinTopUp)
+	common.OptionMap["AlipayNotifyUrl"] = setting.AlipayNotifyUrl
+	common.OptionMap["AlipayReturnUrl"] = setting.AlipayReturnUrl
+	common.OptionMap["AlipaySandbox"] = strconv.FormatBool(setting.AlipaySandbox)
 	common.OptionMap["WaffoEnabled"] = strconv.FormatBool(setting.WaffoEnabled)
 	common.OptionMap["WaffoApiKey"] = setting.WaffoApiKey
 	common.OptionMap["WaffoPrivateKey"] = setting.WaffoPrivateKey
@@ -526,6 +535,24 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.CreemTestMode = value == "true"
 	case "CreemWebhookSecret":
 		setting.CreemWebhookSecret = value
+	case "AlipayAppId":
+		setting.AlipayAppId = value
+	case "AlipaySellerId":
+		setting.AlipaySellerId = value
+	case "AlipayAppPrivateKey":
+		setting.AlipayAppPrivateKey = value
+	case "AlipayPublicKey":
+		setting.AlipayPublicKey = value
+	case "AlipayUnitPrice":
+		setting.AlipayUnitPrice, _ = strconv.ParseFloat(value, 64)
+	case "AlipayMinTopUp":
+		setting.AlipayMinTopUp, _ = strconv.Atoi(value)
+	case "AlipayNotifyUrl":
+		setting.AlipayNotifyUrl = value
+	case "AlipayReturnUrl":
+		setting.AlipayReturnUrl = value
+	case "AlipaySandbox":
+		setting.AlipaySandbox = value == "true"
 	case "WaffoEnabled":
 		setting.WaffoEnabled = value == "true"
 	case "WaffoApiKey":

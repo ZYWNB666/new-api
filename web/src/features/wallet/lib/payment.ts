@@ -75,6 +75,11 @@ export function isStripePayment(paymentType: string): boolean {
   return paymentType === PAYMENT_TYPES.STRIPE
 }
 
+/** Official Alipay uses a distinct identifier so legacy Epay keeps its routes. */
+export function isAlipayPayment(paymentType: string): boolean {
+  return paymentType === PAYMENT_TYPES.ALIPAY_DIRECT
+}
+
 /**
  * Check if payment method is Waffo
  */
@@ -132,6 +137,10 @@ export function getDefaultPaymentType(topupInfo: TopupInfo | null): string {
     return topupInfo.pay_methods[0].type
   }
 
+  if (topupInfo.enable_alipay_topup) {
+    return PAYMENT_TYPES.ALIPAY_DIRECT
+  }
+
   if (topupInfo.enable_stripe_topup) {
     return PAYMENT_TYPES.STRIPE
   }
@@ -157,6 +166,10 @@ export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
 
   if (topupInfo.enable_online_topup) {
     return topupInfo.min_topup
+  }
+
+  if (topupInfo.enable_alipay_topup) {
+    return topupInfo.alipay_min_topup || DEFAULT_MIN_TOPUP
   }
 
   if (topupInfo.enable_stripe_topup) {

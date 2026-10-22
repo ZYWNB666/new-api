@@ -30,6 +30,7 @@ const (
 	PaymentMethodCreem        = "creem"
 	PaymentMethodWaffo        = "waffo"
 	PaymentMethodWaffoPancake = "waffo_pancake"
+	PaymentMethodAlipay       = "alipay_direct"
 	PaymentMethodBalance      = "balance"
 )
 
@@ -39,6 +40,7 @@ const (
 	PaymentProviderCreem        = "creem"
 	PaymentProviderWaffo        = "waffo"
 	PaymentProviderWaffoPancake = "waffo_pancake"
+	PaymentProviderAlipay       = "alipay"
 	PaymentProviderBalance      = "balance"
 )
 
@@ -479,9 +481,13 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 
 		// 计算应充值额度：
 		// - Stripe 订单：Money 代表经分组倍率换算后的美元数量，直接 * QuotaPerUnit
+		// - 支付宝直连订单：Amount 是下单时冻结的原始额度，Money 是人民币实付金额
 		// - 其他订单（如易支付）：Amount 为美元数量，* QuotaPerUnit
 		var quotaErr error
-		if topUp.PaymentProvider == PaymentProviderStripe {
+		if topUp.PaymentProvider == PaymentProviderAlipay {
+			// Alipay freezes credited quota in Amount and actual CNY paid in Money.
+			quotaToAdd, quotaErr = common.WalletQuotaFromDecimalStrict(decimal.NewFromInt(topUp.Amount))
+		} else if topUp.PaymentProvider == PaymentProviderStripe {
 			quotaToAdd, quotaErr = common.WalletQuotaFromDecimalStrict(
 				decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
 			)
@@ -650,6 +656,59 @@ func RechargeWaffo(tradeNo string, callerIp string) (err error) {
 		RecordTopupLog(topUp.UserId, fmt.Sprintf("Waffo充值成功，充值额度: %v，支付金额: %.2f", logger.FormatQuota(quotaToAdd), topUp.Money), callerIp, topUp.PaymentMethod, PaymentMethodWaffo)
 	}
 
+	return nil
+}
+
+// RechargeAlipay validates the paid CNY amount and credits the frozen quota in
+// the same transaction. Repeated notifications must never credit twice.
+func RechargeAlipay(tradeNo string, paidAmount decimal.Decimal, callerIp string) error {
+	if tradeNo == "" {
+		return ErrTopUpNotFound
+	}
+	var topUp TopUp
+	var creditedQuota int
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := lockForUpdate(tx).Where("trade_no = ?", tradeNo).First(&topUp).Error; err != nil {
+			return err
+		}
+		if topUp.PaymentProvider != PaymentProviderAlipay || topUp.PaymentMethod != PaymentMethodAlipay {
+			return ErrPaymentMethodMismatch
+		}
+		if !paidAmount.IsPositive() || !paidAmount.Equal(decimal.NewFromFloat(topUp.Money)) {
+			return errors.New("alipay payment amount mismatch")
+		}
+		if topUp.Status == common.TopUpStatusSuccess {
+			return nil
+		}
+		if topUp.Status != common.TopUpStatusPending {
+			return ErrTopUpStatusInvalid
+		}
+		quota, err := common.WalletQuotaFromDecimalStrict(decimal.NewFromInt(topUp.Amount))
+		if err != nil || quota <= 0 {
+			return ErrInvalidTopUpQuota
+		}
+		// A conditional transition also protects databases where row locks are unavailable.
+		result := tx.Model(&TopUp{}).Where("id = ? AND status = ?", topUp.Id, common.TopUpStatusPending).
+			Updates(map[string]any{"status": common.TopUpStatusSuccess, "complete_time": common.GetTimestamp()})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return ErrTopUpStatusInvalid
+		}
+		if err := creditTopUpQuota(tx, topUp.UserId, quota, nil); err != nil {
+			return err
+		}
+		creditedQuota = quota
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if creditedQuota > 0 {
+		syncCreditUserQuotaCache(topUp.UserId, creditedQuota, "alipay topup")
+		RecordTopupLog(topUp.UserId, fmt.Sprintf("使用支付宝充值成功，充值额度: %v，支付金额: %.2f CNY", logger.FormatQuota(creditedQuota), topUp.Money), callerIp, topUp.PaymentMethod, PaymentProviderAlipay)
+	}
 	return nil
 }
 

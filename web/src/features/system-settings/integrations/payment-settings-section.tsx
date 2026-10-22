@@ -46,6 +46,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
 import { handleServerError } from '@/lib/handle-server-error'
 import { cn } from '@/lib/utils'
 
@@ -160,6 +161,15 @@ const paymentSchema = z.object({
       })
     }
   }),
+  AlipaySellerId: z.string(),
+  AlipayAppId: z.string(),
+  AlipayAppPrivateKey: z.string(),
+  AlipayPublicKey: z.string(),
+  AlipayUnitPrice: z.coerce.number().positive(),
+  AlipayMinTopUp: z.coerce.number().int().min(1).max(10000),
+  AlipayNotifyUrl: z.string(),
+  AlipayReturnUrl: z.string(),
+  AlipaySandbox: z.boolean(),
   WaffoEnabled: z.boolean(),
   WaffoApiKey: z.string(),
   WaffoPrivateKey: z.string(),
@@ -438,6 +448,15 @@ export function PaymentSettingsSection({
       CreemWebhookSecret: values.CreemWebhookSecret.trim(),
       CreemTestMode: values.CreemTestMode,
       CreemProducts: values.CreemProducts.trim(),
+      AlipaySellerId: values.AlipaySellerId.trim(),
+      AlipayAppId: values.AlipayAppId.trim(),
+      AlipayAppPrivateKey: values.AlipayAppPrivateKey.trim(),
+      AlipayPublicKey: values.AlipayPublicKey.trim(),
+      AlipayUnitPrice: values.AlipayUnitPrice,
+      AlipayMinTopUp: values.AlipayMinTopUp,
+      AlipayNotifyUrl: removeTrailingSlash(values.AlipayNotifyUrl),
+      AlipayReturnUrl: removeTrailingSlash(values.AlipayReturnUrl),
+      AlipaySandbox: values.AlipaySandbox,
       WaffoEnabled: values.WaffoEnabled,
       WaffoSandbox: values.WaffoSandbox,
       WaffoMerchantId: values.WaffoMerchantId.trim(),
@@ -483,6 +502,15 @@ export function PaymentSettingsSection({
       CreemWebhookSecret: initialRef.current.CreemWebhookSecret.trim(),
       CreemTestMode: initialRef.current.CreemTestMode,
       CreemProducts: initialRef.current.CreemProducts.trim(),
+      AlipaySellerId: initialRef.current.AlipaySellerId.trim(),
+      AlipayAppId: initialRef.current.AlipayAppId.trim(),
+      AlipayAppPrivateKey: initialRef.current.AlipayAppPrivateKey.trim(),
+      AlipayPublicKey: initialRef.current.AlipayPublicKey.trim(),
+      AlipayUnitPrice: initialRef.current.AlipayUnitPrice,
+      AlipayMinTopUp: initialRef.current.AlipayMinTopUp,
+      AlipayNotifyUrl: removeTrailingSlash(initialRef.current.AlipayNotifyUrl),
+      AlipayReturnUrl: removeTrailingSlash(initialRef.current.AlipayReturnUrl),
+      AlipaySandbox: initialRef.current.AlipaySandbox,
       WaffoEnabled: initialRef.current.WaffoEnabled,
       WaffoSandbox: initialRef.current.WaffoSandbox,
       WaffoMerchantId: initialRef.current.WaffoMerchantId.trim(),
@@ -628,6 +656,51 @@ export function PaymentSettingsSection({
       normalizeJsonForComparison(initial.CreemProducts)
     ) {
       updates.push({ key: 'CreemProducts', value: sanitized.CreemProducts })
+    }
+
+    if (sanitized.AlipaySellerId !== initial.AlipaySellerId) {
+      updates.push({ key: 'AlipaySellerId', value: sanitized.AlipaySellerId })
+    }
+
+    if (sanitized.AlipayAppId !== initial.AlipayAppId) {
+      updates.push({ key: 'AlipayAppId', value: sanitized.AlipayAppId })
+    }
+
+    if (
+      sanitized.AlipayAppPrivateKey &&
+      sanitized.AlipayAppPrivateKey !== initial.AlipayAppPrivateKey
+    ) {
+      updates.push({
+        key: 'AlipayAppPrivateKey',
+        value: sanitized.AlipayAppPrivateKey,
+      })
+    }
+
+    if (
+      sanitized.AlipayPublicKey &&
+      sanitized.AlipayPublicKey !== initial.AlipayPublicKey
+    ) {
+      updates.push({ key: 'AlipayPublicKey', value: sanitized.AlipayPublicKey })
+    }
+
+    if (sanitized.AlipayUnitPrice !== initial.AlipayUnitPrice) {
+      updates.push({ key: 'AlipayUnitPrice', value: sanitized.AlipayUnitPrice })
+    }
+
+    if (sanitized.AlipayMinTopUp !== initial.AlipayMinTopUp) {
+      updates.push({ key: 'AlipayMinTopUp', value: sanitized.AlipayMinTopUp })
+    }
+
+    if (sanitized.AlipayNotifyUrl !== initial.AlipayNotifyUrl) {
+      updates.push({ key: 'AlipayNotifyUrl', value: sanitized.AlipayNotifyUrl })
+    }
+
+    if (sanitized.AlipayReturnUrl !== initial.AlipayReturnUrl) {
+      updates.push({ key: 'AlipayReturnUrl', value: sanitized.AlipayReturnUrl })
+    }
+
+    if (sanitized.AlipaySandbox !== initial.AlipaySandbox) {
+      updates.push({ key: 'AlipaySandbox', value: sanitized.AlipaySandbox })
     }
 
     if (sanitized.WaffoEnabled !== initial.WaffoEnabled) {
@@ -879,11 +952,12 @@ export function PaymentSettingsSection({
           />
           <Tabs defaultValue='general' className='min-w-0'>
             <div className='overflow-x-auto pb-1'>
-              <TabsList className='grid min-w-[44rem] grid-cols-6'>
+              <TabsList className='grid min-w-[50rem] grid-cols-7'>
                 <TabsTrigger value='general'>{t('General')}</TabsTrigger>
                 <TabsTrigger value='epay'>Epay</TabsTrigger>
                 <TabsTrigger value='stripe'>{t('Stripe')}</TabsTrigger>
                 <TabsTrigger value='creem'>Creem</TabsTrigger>
+                <TabsTrigger value='alipay'>Alipay</TabsTrigger>
                 <TabsTrigger value='waffo-pancake'>Waffo Pancake</TabsTrigger>
                 <TabsTrigger value='waffo'>Waffo</TabsTrigger>
               </TabsList>
@@ -1603,6 +1677,256 @@ export function PaymentSettingsSection({
                     </FormItem>
                   )}
                 />
+              </div>
+            </TabsContent>
+
+            <TabsContent value='alipay' className={paymentTabContentClassName}>
+              <div className='space-y-4'>
+                <div>
+                  <h3 className='text-lg font-medium'>{t('Alipay Gateway')}</h3>
+                  <p className='text-muted-foreground text-sm'>
+                    {t(
+                      'Configuration for the official Alipay direct integration'
+                    )}
+                  </p>
+                </div>
+
+                <div className='rounded-md bg-blue-50 p-4 text-sm text-blue-900 dark:bg-blue-950 dark:text-blue-100'>
+                  <p className='mb-2 font-medium'>
+                    {t('Webhook Configuration:')}
+                  </p>
+                  <ul className='list-inside list-disc space-y-1'>
+                    <li>
+                      {t('Webhook URL:')}{' '}
+                      <code className='rounded bg-blue-100 px-1 py-0.5 text-xs dark:bg-blue-900'>
+                        {'<ServerAddress>/api/alipay/notify'}
+                      </code>
+                    </li>
+                    <li>
+                      {t(
+                        'Use the key signing method with the RSA2 algorithm in the Alipay open platform'
+                      )}
+                    </li>
+                  </ul>
+                </div>
+
+                <div className='grid gap-6 md:grid-cols-2'>
+                  <FormField
+                    control={form.control}
+                    name='AlipayAppId'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('APPID')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={t('Enter Alipay APPID')}
+                            autoComplete='off'
+                            {...field}
+                            onChange={(event) =>
+                              field.onChange(event.target.value)
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'The APPID of the application created on the Alipay open platform'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='AlipaySellerId'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Seller ID (PID)')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder='2088…'
+                            autoComplete='off'
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'The Alipay user ID of the contracted receiving account'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='AlipayUnitPrice'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Unit price (CNY)')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            step='0.01'
+                            min={0}
+                            {...safeNumberFieldProps(field)}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t('Price per quota unit in CNY')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='AlipayAppPrivateKey'
+                    render={({ field }) => (
+                      <FormItem className='md:col-span-2'>
+                        <FormLabel>{t('Application private key')}</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            {...field}
+                            autoComplete='off'
+                            spellCheck={false}
+                            placeholder='-----BEGIN PRIVATE KEY-----'
+                            className='h-32 resize-y font-mono text-xs'
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'PKCS#8 PEM or the single-line base64 exported by the Alipay key tool'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='AlipayPublicKey'
+                    render={({ field }) => (
+                      <FormItem className='md:col-span-2'>
+                        <FormLabel>{t('Alipay public key')}</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            {...field}
+                            autoComplete='off'
+                            spellCheck={false}
+                            placeholder='MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...'
+                            className='h-32 resize-y font-mono text-xs'
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Used to verify the signature of asynchronous notifications'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='AlipayMinTopUp'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Minimum top-up')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            type='number'
+                            step='1'
+                            min={0}
+                            {...safeNumberFieldProps(field)}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t('Minimum recharge amount')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='AlipayNotifyUrl'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Notify URL')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder='https://example.com/api/alipay/notify'
+                            autoComplete='off'
+                            {...field}
+                            onChange={(event) =>
+                              field.onChange(event.target.value)
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t('Leave empty to use ServerAddress automatically')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='AlipayReturnUrl'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Return URL')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder='https://example.com/wallet'
+                            autoComplete='off'
+                            {...field}
+                            onChange={(event) =>
+                              field.onChange(event.target.value)
+                            }
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t('Where users land after paying')}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name='AlipaySandbox'
+                    render={({ field }) => (
+                      <FormItem className='md:col-span-2'>
+                        <SettingsSwitchItem>
+                          <SettingsSwitchContent>
+                            <FormLabel>{t('Sandbox mode')}</FormLabel>
+                            <FormDescription>
+                              {t(
+                                'For integration testing only. Disable in production.'
+                              )}
+                            </FormDescription>
+                          </SettingsSwitchContent>
+                          <FormControl>
+                            <Switch
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                        </SettingsSwitchItem>
+                      </FormItem>
+                    )}
+                  />
+                </div>
               </div>
             </TabsContent>
 

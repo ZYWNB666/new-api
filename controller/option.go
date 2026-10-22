@@ -200,6 +200,14 @@ func UpdateOption(c *gin.Context) {
 	default:
 		option.Value = fmt.Sprintf("%v", option.Value)
 	}
+	if strings.HasPrefix(option.Key, "Alipay") {
+		value := strings.TrimSpace(option.Value.(string))
+		if err := validateAlipayOption(option.Key, value); err != nil {
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
+		option.Value = value
+	}
 	switch option.Key {
 	case "QuotaForInviter", "QuotaForInvitee":
 		if isPositiveOptionValue(option.Value.(string)) && !operation_setting.IsPaymentComplianceConfirmed() {

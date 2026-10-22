@@ -73,6 +73,23 @@ func isWaffoWebhookEnabled() bool {
 	return isWaffoTopUpEnabled()
 }
 
+// isAlipayTopUpEnabled 判断支付宝官方直连是否可用。
+// 密钥模式下需要 APPID、收款 PID、应用私钥和支付宝公钥齐备。
+func isAlipayTopUpEnabled() bool {
+	if !isPaymentComplianceConfirmed() {
+		return false
+	}
+	return strings.TrimSpace(setting.AlipayAppId) != "" &&
+		strings.TrimSpace(setting.AlipayAppPrivateKey) != "" &&
+		strings.TrimSpace(setting.AlipayPublicKey) != "" &&
+		strings.TrimSpace(setting.AlipaySellerId) != ""
+}
+
+// isAlipayNotifyEnabled 控制异步通知端点是否接受请求。
+func isAlipayNotifyEnabled() bool {
+	return isAlipayTopUpEnabled()
+}
+
 func isWaffoPancakeTopUpEnabled() bool {
 	if !isPaymentComplianceConfirmed() {
 		return false

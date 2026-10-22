@@ -26,8 +26,8 @@ func GetTopUpInfo(c *gin.Context) {
 	complianceConfirmed := operation_setting.IsPaymentComplianceConfirmed()
 
 	// 获取支付方式
-	payMethods := operation_setting.PayMethods
-	if !complianceConfirmed {
+	payMethods := append([]map[string]string{}, operation_setting.PayMethods...)
+	if !isEpayTopUpEnabled() {
 		payMethods = []map[string]string{}
 	}
 
@@ -51,6 +51,13 @@ func GetTopUpInfo(c *gin.Context) {
 			}
 			payMethods = append(payMethods, stripeMethod)
 		}
+	}
+
+	enableAlipay := isAlipayTopUpEnabled()
+	if enableAlipay {
+		payMethods = append(payMethods, map[string]string{
+			"name": "Alipay", "type": model.PaymentMethodAlipay, "color": "#1677FF", "min_topup": strconv.FormatInt(getAlipayMinTopup(), 10),
+		})
 	}
 
 	// Waffo Pancake is displayed above the standard Waffo gateway.
@@ -98,6 +105,8 @@ func GetTopUpInfo(c *gin.Context) {
 
 	data := gin.H{
 		"enable_online_topup":              isEpayTopUpEnabled(),
+		"enable_alipay_topup":              enableAlipay,
+		"alipay_min_topup":                 getAlipayMinTopup(),
 		"enable_stripe_topup":              isStripeTopUpEnabled(),
 		"enable_creem_topup":               isCreemTopUpEnabled(),
 		"enable_waffo_topup":               enableWaffo,

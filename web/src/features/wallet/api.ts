@@ -35,6 +35,7 @@ import type {
   CompleteOrderRequest,
   CreemPaymentRequest,
   CreemPaymentResponse,
+  AlipayPaymentResponse,
   WaffoPaymentRequest,
   WaffoPaymentResponse,
   WaffoPancakePaymentRequest,
@@ -142,6 +143,32 @@ export async function requestCreemPayment(
   const res = await api.post('/api/user/creem/pay', request, {
     skipBusinessError: true,
   } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * Request Alipay payment (official direct integration).
+ *
+ * Unlike the legacy epay flow, this returns a ready-to-use `pay_link` that the
+ * browser opens directly, so it is dispatched like Stripe rather than through
+ * the generic form submission.
+ */
+export async function requestAlipayPayment(
+  request: PaymentRequest
+): Promise<AlipayPaymentResponse> {
+  const res = await api.post('/api/user/alipay/pay', request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * Calculate the payable amount for Alipay.
+ */
+export async function calculateAlipayAmount(
+  request: AmountRequest
+): Promise<AmountResponse> {
+  const res = await api.post('/api/user/alipay/amount', request)
   return res.data
 }
 

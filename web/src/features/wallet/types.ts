@@ -39,6 +39,10 @@ export type PaymentResponse = ApiResponse<Record<string, unknown>> & {
   url?: string
 }
 export type StripePaymentResponse = ApiResponse<{ pay_link: string }>
+export type AlipayPaymentResponse = ApiResponse<{
+  pay_link: string
+  trade_no: string
+}>
 export type AffiliateCodeResponse = ApiResponse<string>
 export type AffiliateTransferResponse = ApiResponse
 export type CreemPaymentResponse = ApiResponse<{ checkout_url: string }>
@@ -120,6 +124,8 @@ export interface WaffoPayMethod {
  * Topup configuration information
  */
 export interface TopupInfo {
+  enable_alipay_topup?: boolean
+  alipay_min_topup?: number
   /** Whether online topup is enabled */
   enable_online_topup: boolean
   /** Whether Stripe topup is enabled */
@@ -253,6 +259,7 @@ export type TopupStatus = 'success' | 'pending' | 'expired'
  * Topup billing record
  */
 export interface TopupRecord {
+  payment_provider?: string
   /** Record ID */
   id: number
   /** User ID */
