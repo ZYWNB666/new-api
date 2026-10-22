@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"mime"
@@ -18,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/shopspring/decimal"
 	"github.com/thanhpk/randstr"
+	"gorm.io/gorm"
 )
 
 type AlipayPayRequest struct {
@@ -131,9 +133,14 @@ func requestAlipayCheckout(c *gin.Context, createOrder bool) {
 		return
 	}
 	tradeNo := "alipay-" + randstr.String(32)
-	payURL, err := genAlipayPayURL(client, tradeNo, money)
+	payURL, err := genAlipayPayURL(client, tradeNo, money, false)
 	if err != nil {
 		logger.LogError(c.Request.Context(), "支付宝下单失败: "+err.Error())
+		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})
+		return
+	}
+	qrPayURL, err := genAlipayPayURL(client, tradeNo, money, true)
+	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "拉起支付失败"})
 		return
 	}
@@ -148,11 +155,12 @@ func requestAlipayCheckout(c *gin.Context, createOrder bool) {
 		c.JSON(http.StatusOK, gin.H{"message": "error", "data": "创建订单失败"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "success", "data": gin.H{"pay_link": payURL, "trade_no": tradeNo}})
+	c.JSON(http.StatusOK, gin.H{"message": "success", "data": gin.H{"pay_link": payURL, "qr_pay_link": qrPayURL, "trade_no": tradeNo, "expires_at": topUp.CreateTime + 30*60}})
 }
 
-// Page pay is a browser redirect; no funds are credited from the return URL.
-func genAlipayPayURL(client *alipayClient, tradeNo string, money decimal.Decimal) (string, error) {
+// Page pay can be embedded or opened as a full checkout. Only verified
+// asynchronous notifications may credit funds; browser navigation is not proof of payment.
+func genAlipayPayURL(client *alipayClient, tradeNo string, money decimal.Decimal, embedded bool) (string, error) {
 	notifyURL := strings.TrimSpace(setting.AlipayNotifyUrl)
 	if notifyURL == "" {
 		notifyURL = strings.TrimRight(service.GetCallbackAddress(), "/") + "/api/alipay/notify"
@@ -167,10 +175,15 @@ func genAlipayPayURL(client *alipayClient, tradeNo string, money decimal.Decimal
 			return "", fmt.Errorf("支付宝回调地址必须为完整的 HTTP/HTTPS URL")
 		}
 	}
-	biz, err := common.Marshal(map[string]string{
+	bizContent := map[string]string{
 		"out_trade_no": tradeNo, "total_amount": money.StringFixed(2), "subject": "账户充值",
 		"product_code": "FAST_INSTANT_TRADE_PAY", "timeout_express": "30m", "seller_id": strings.TrimSpace(setting.AlipaySellerId),
-	})
+	}
+	if embedded {
+		bizContent["qr_pay_mode"] = "4"
+		bizContent["qrcode_width"] = "256"
+	}
+	biz, err := common.Marshal(bizContent)
 	if err != nil {
 		return "", err
 	}
@@ -178,6 +191,10 @@ func genAlipayPayURL(client *alipayClient, tradeNo string, money decimal.Decimal
 		"app_id": client.appId, "method": "alipay.trade.page.pay", "format": "JSON", "charset": "utf-8", "sign_type": "RSA2",
 		"timestamp": time.Now().In(time.FixedZone("CST", 8*60*60)).Format("2006-01-02 15:04:05"), "version": "1.0",
 		"return_url": returnURL, "notify_url": notifyURL, "biz_content": string(biz),
+	}
+	if embedded {
+		// Keep the frame on Alipay's completion screen; never load the whole wallet inside it.
+		delete(params, "return_url")
 	}
 	sign, err := client.sign(params)
 	if err != nil {
@@ -251,4 +268,29 @@ func AlipayNotify(c *gin.Context) {
 		return
 	}
 	c.String(http.StatusOK, "success")
+}
+
+// RequestAlipayOrderStatus reports settlement recorded for the authenticated
+// owner's order. Reading status never changes quota or trusts browser messages.
+func RequestAlipayOrderStatus(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	if c.GetInt("id") <= 0 {
+		c.AbortWithStatus(http.StatusUnauthorized)
+		return
+	}
+	tradeNo := c.Param("trade_no")
+	if tradeNo == "" || len(tradeNo) > 64 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "订单号无效"})
+		return
+	}
+	status, err := model.GetUserAlipayOrderStatus(c.GetInt("id"), tradeNo)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "订单不存在"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询订单失败"})
+		return
+	}
+	common.ApiSuccess(c, gin.H{"status": status})
 }

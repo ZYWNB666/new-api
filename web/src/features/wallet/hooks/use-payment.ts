@@ -40,7 +40,7 @@ import {
   isAlipayPayment,
   submitPaymentForm,
 } from '../lib'
-import type { AmountRequest, AmountResponse } from '../types'
+import type { AmountRequest, AmountResponse, AlipayCheckout } from '../types'
 
 // ============================================================================
 // Payment Hook
@@ -89,6 +89,9 @@ export async function requestPaymentAmount(
 }
 
 export function usePayment() {
+  const [alipayCheckout, setAlipayCheckout] = useState<AlipayCheckout | null>(
+    null
+  )
   const [amount, setAmount] = useState<number>(0)
   const [calculating, setCalculating] = useState(false)
   const [processing, setProcessing] = useState(false)
@@ -157,7 +160,13 @@ export function usePayment() {
 
         // Handle official Alipay payment
         if (isAlipay && response.data?.pay_link) {
-          window.location.assign(response.data.pay_link as string)
+          const checkout = response.data as AlipayCheckout
+          // The older response remains usable during rolling upgrades.
+          if (checkout.qr_pay_link) {
+            setAlipayCheckout(checkout)
+          } else {
+            window.location.assign(checkout.pay_link)
+          }
           return true
         }
 
@@ -183,6 +192,8 @@ export function usePayment() {
   )
 
   return {
+    alipayCheckout,
+    setAlipayCheckout,
     amount,
     calculating,
     processing,

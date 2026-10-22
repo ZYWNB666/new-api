@@ -39,10 +39,14 @@ export type PaymentResponse = ApiResponse<Record<string, unknown>> & {
   url?: string
 }
 export type StripePaymentResponse = ApiResponse<{ pay_link: string }>
-export type AlipayPaymentResponse = ApiResponse<{
+export interface AlipayCheckout {
   pay_link: string
+  qr_pay_link?: string
   trade_no: string
-}>
+  expires_at?: number
+}
+export type AlipayPaymentResponse = ApiResponse<AlipayCheckout>
+export type AlipayOrderStatusResponse = ApiResponse<{ status: TopupStatus }>
 export type AffiliateCodeResponse = ApiResponse<string>
 export type AffiliateTransferResponse = ApiResponse
 export type CreemPaymentResponse = ApiResponse<{ checkout_url: string }>

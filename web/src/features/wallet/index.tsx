@@ -25,6 +25,7 @@ import { useSystemConfig } from '@/hooks/use-system-config'
 import { getSelf } from '@/lib/api'
 
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
+import { AlipayPaymentDialog } from './components/dialogs/alipay-payment-dialog'
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
 import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
 import { PaymentConfirmDialog } from './components/dialogs/payment-confirm-dialog'
@@ -44,6 +45,7 @@ import {
 } from './hooks'
 import {
   getDefaultPaymentType,
+  isAlipayPayment,
   getMinTopupAmount,
   dispatchSelectedPayment,
 } from './lib'
@@ -91,6 +93,8 @@ export function Wallet(props: WalletProps) {
       : currency?.usdExchangeRate || 1
   }, [currency?.quotaDisplayType, currency?.usdExchangeRate])
   const {
+    alipayCheckout,
+    setAlipayCheckout,
     amount: paymentAmount,
     calculating,
     processing,
@@ -207,7 +211,9 @@ export function Wallet(props: WalletProps) {
 
     if (success) {
       setConfirmDialogOpen(false)
-      await fetchUser()
+      if (!isAlipayPayment(selectedPaymentMethod.type)) {
+        await fetchUser()
+      }
     }
   }
 
@@ -364,6 +370,15 @@ export function Wallet(props: WalletProps) {
         discountRate={getDiscountRate()}
         usdExchangeRate={effectiveUsdExchangeRate}
       />
+
+      {alipayCheckout && !confirmDialogOpen && (
+        <AlipayPaymentDialog
+          key={alipayCheckout.trade_no}
+          checkout={alipayCheckout}
+          onClose={() => setAlipayCheckout(null)}
+          onPaid={fetchUser}
+        />
+      )}
 
       <TransferDialog
         open={transferDialogOpen}

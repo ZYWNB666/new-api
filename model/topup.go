@@ -144,6 +144,14 @@ func GetTopUpByTradeNo(tradeNo string) *TopUp {
 	return topUp
 }
 
+// GetUserAlipayOrderStatus scopes the lookup to its owner and the direct
+// Alipay provider. Do not expose other users' orders or aggregator orders.
+func GetUserAlipayOrderStatus(userID int, tradeNo string) (string, error) {
+	var order TopUp
+	err := DB.Select("status").Where("user_id = ? AND trade_no = ? AND payment_provider = ? AND payment_method = ?", userID, tradeNo, PaymentProviderAlipay, PaymentMethodAlipay).First(&order).Error
+	return order.Status, err
+}
+
 func UpdatePendingTopUpStatus(tradeNo string, expectedPaymentProvider string, targetStatus string) error {
 	if tradeNo == "" {
 		return errors.New("未提供支付单号")

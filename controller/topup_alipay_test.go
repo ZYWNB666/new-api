@@ -244,7 +244,7 @@ func TestAlipayPayURLPreparation(t *testing.T) {
 	system_setting.ServerAddress = "https://example.com"
 	t.Cleanup(func() { system_setting.ServerAddress = oldAddress })
 
-	payURL, err := genAlipayPayURL(client, "alipay-1-2-abcdef", decimal.NewFromInt(73))
+	payURL, err := genAlipayPayURL(client, "alipay-1-2-abcdef", decimal.NewFromInt(73), false)
 	require.NoError(t, err)
 
 	parsed, err := url.Parse(payURL)
@@ -376,8 +376,10 @@ func TestAlipayCheckoutAndNotification(t *testing.T) {
 			var response struct {
 				Message string
 				Data    struct {
-					PayLink string `json:"pay_link"`
-					TradeNo string `json:"trade_no"`
+					PayLink   string `json:"pay_link"`
+					QRPayLink string `json:"qr_pay_link"`
+					ExpiresAt int64  `json:"expires_at"`
+					TradeNo   string `json:"trade_no"`
 				}
 			}
 			require.NoError(t, common.Unmarshal(created.Body.Bytes(), &response))
@@ -389,10 +391,44 @@ func TestAlipayCheckoutAndNotification(t *testing.T) {
 			require.NoError(t, common.UnmarshalJsonStr(payURL.Query().Get("biz_content"), &biz))
 			assert.Equal(t, "98.55", biz["total_amount"])
 			assert.Equal(t, setting.AlipaySellerId, biz["seller_id"])
+			embeddedURL, err := url.Parse(response.Data.QRPayLink)
+			require.NoError(t, err)
+			require.Equal(t, "alipay.trade.page.pay", embeddedURL.Query().Get("method"))
+			require.Empty(t, embeddedURL.Query().Get("return_url"), "embedded checkout must not navigate into the wallet")
+			var embeddedBiz map[string]string
+			require.NoError(t, common.UnmarshalJsonStr(embeddedURL.Query().Get("biz_content"), &embeddedBiz))
+			assert.Equal(t, "4", embeddedBiz["qr_pay_mode"])
+			assert.Equal(t, "256", embeddedBiz["qrcode_width"])
+			assert.Equal(t, response.Data.TradeNo, embeddedBiz["out_trade_no"])
+			assert.Equal(t, biz["total_amount"], embeddedBiz["total_amount"])
+			params := map[string]string{}
+			for k := range embeddedURL.Query() {
+				params[k] = embeddedURL.Query().Get(k)
+			}
+			assert.NoError(t, client.verify(alipaySignContent(params), embeddedURL.Query().Get("sign")))
+			assert.Greater(t, response.Data.ExpiresAt, common.GetTimestamp())
 			topup := model.GetTopUpByTradeNo(response.Data.TradeNo)
 			require.NotNil(t, topup)
 			assert.EqualValues(t, 7500000, topup.Amount)
 			assert.Equal(t, 98.55, topup.Money)
+
+			statusRouter := gin.New()
+			statusRouter.Use(func(c *gin.Context) { c.Set("id", 101) })
+			statusRouter.GET("/alipay/orders/:trade_no", RequestAlipayOrderStatus)
+			readStatus := func(tradeNo string) *httptest.ResponseRecorder {
+				recorder := httptest.NewRecorder()
+				statusRouter.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/alipay/orders/"+tradeNo, nil))
+				return recorder
+			}
+			pendingStatus := readStatus(response.Data.TradeNo)
+			assert.JSONEq(t, `{"success":true,"message":"","data":{"status":"pending"}}`, pendingStatus.Body.String())
+			require.NoError(t, db.Model(&model.TopUp{}).Where("trade_no = ?", response.Data.TradeNo).Update("user_id", 102).Error)
+			assert.Equal(t, http.StatusNotFound, readStatus(response.Data.TradeNo).Code)
+			require.NoError(t, db.Model(&model.TopUp{}).Where("trade_no = ?", response.Data.TradeNo).Update("user_id", 101).Error)
+			require.NoError(t, db.Model(&model.TopUp{}).Where("trade_no = ?", response.Data.TradeNo).Update("payment_provider", model.PaymentProviderEpay).Error)
+			assert.Equal(t, http.StatusNotFound, readStatus(response.Data.TradeNo).Code)
+			require.NoError(t, db.Model(&model.TopUp{}).Where("trade_no = ?", response.Data.TradeNo).Update("payment_provider", model.PaymentProviderAlipay).Error)
+			assert.Equal(t, http.StatusNotFound, readStatus("missing-order").Code)
 
 			// Notification signatures exclude sign_type, independently from request signing.
 			notify := func(changes map[string]string, tamper bool, duplicate bool) *httptest.ResponseRecorder {
@@ -449,6 +485,7 @@ func TestAlipayCheckoutAndNotification(t *testing.T) {
 			require.NoError(t, db.First(&user, 101).Error)
 			assert.Equal(t, 7500100, user.Quota)
 			assert.Equal(t, common.TopUpStatusSuccess, model.GetTopUpByTradeNo(response.Data.TradeNo).Status)
+			assert.JSONEq(t, `{"success":true,"message":"","data":{"status":"success"}}`, readStatus(response.Data.TradeNo).Body.String())
 			var logs int64
 			require.NoError(t, logDB.Model(&model.Log{}).Where("user_id = ? AND type = ?", 101, model.LogTypeTopup).Count(&logs).Error)
 			assert.EqualValues(t, 1, logs)
