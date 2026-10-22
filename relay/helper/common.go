@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/pkg/metrics"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 
@@ -64,13 +66,16 @@ func ClaudeData(c *gin.Context, resp dto.ClaudeResponse) error {
 	}
 
 	jsonData, err := common.Marshal(resp)
+	previousErrors := len(c.Errors)
 	if err != nil {
 		common.SysError("error marshalling stream response: " + err.Error())
 	} else {
 		c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
 		c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonData)})
 	}
-	_ = FlushWriter(c)
+	if FlushWriter(c) == nil && err == nil && len(c.Errors) == previousErrors {
+		ObserveForwardedPayload(c, string(jsonData))
+	}
 	return nil
 }
 
@@ -79,9 +84,12 @@ func ClaudeChunkData(c *gin.Context, resp dto.ClaudeResponse, data string) {
 		return
 	}
 
+	previousErrors := len(c.Errors)
 	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
 	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s\n", data)})
-	_ = FlushWriter(c)
+	if FlushWriter(c) == nil && len(c.Errors) == previousErrors {
+		ObserveForwardedPayload(c, data)
+	}
 }
 
 func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data string) error {
@@ -89,9 +97,14 @@ func ResponseChunkData(c *gin.Context, resp dto.ResponsesStreamResponse, data st
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
+	previousErrors := len(c.Errors)
 	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("event: %s\n", resp.Type)})
 	c.Render(-1, common.CustomEvent{Data: fmt.Sprintf("data: %s", data)})
-	return FlushWriter(c)
+	err := FlushWriter(c)
+	if err == nil && len(c.Errors) == previousErrors {
+		ObserveForwardedPayload(c, data)
+	}
+	return err
 }
 
 func StringData(c *gin.Context, str string) error {
@@ -103,8 +116,25 @@ func StringData(c *gin.Context, str string) error {
 		return fmt.Errorf("request context done: %w", c.Request.Context().Err())
 	}
 
+	previousErrors := len(c.Errors)
 	c.Render(-1, common.CustomEvent{Data: "data: " + str})
-	return FlushWriter(c)
+	err := FlushWriter(c)
+	if err == nil && len(c.Errors) == previousErrors {
+		ObserveForwardedPayload(c, str)
+	}
+	return err
+}
+
+// ObserveForwardedPayload records successful content writes without retaining data.
+func ObserveForwardedPayload(c *gin.Context, data string) {
+	if metrics.Current() == nil {
+		return
+	}
+	if value, ok := c.Get(metrics.GenerationContextKey); ok {
+		if generation, ok := value.(*metrics.Generation); ok {
+			generation.ObserveSitePayload(data, time.Now())
+		}
+	}
 }
 
 func PingData(c *gin.Context) error {

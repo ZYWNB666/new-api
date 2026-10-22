@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -185,6 +186,9 @@ func handleCozeEvent(c *gin.Context, event string, data string, responseText *st
 		}
 
 		*responseText += content
+		if content != "" {
+			info.GenerationMetrics.ObserveProviderContent(time.Now())
+		}
 
 		openaiResponse := dto.ChatCompletionsStreamResponse{
 			Id:      id,

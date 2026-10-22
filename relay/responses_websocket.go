@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	appmodel "github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/metrics"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/pkg/wsmanager"
 	relaychannel "github.com/QuantumNous/new-api/relay/channel"
@@ -229,6 +230,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 	modelName := create.Request.Model
 	started := time.Now()
 	var info *relaycommon.RelayInfo
+	var providerAttempt *metrics.ProviderAttempt
 	billingPrepared := false
 	defer func() {
 		if recovered := recover(); recovered != nil {
@@ -238,7 +240,15 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 		if info == nil && modelName != "" {
 			info = &relaycommon.RelayInfo{OriginModelName: modelName, UsingGroup: common.GetContextKeyString(c, appconstant.ContextKeyUsingGroup), StartTime: started}
 		}
+		if info != nil {
+			providerAttempt.Finish(info.PerformanceOutputTokens, string(perfmetrics.ClassifyRelayOutcome(c.Request.Context(), info, apiErr)))
+		}
 		perfmetrics.RecordRelayResult(c.Request.Context(), info, apiErr)
+		if info != nil {
+			// Each response on a persistent socket is a site request. HTTP 101
+			// describes the connection; protocol failures are in outcome.
+			info.GenerationMetrics.FinishSite(http.StatusSwitchingProtocols)
+		}
 		// Settlement already marks the request policy successful, and nothing
 		// reads a termination decision after this point on the WebSocket path,
 		// so neither policy record belongs here.
@@ -275,6 +285,8 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 		if apiErr != nil {
 			return apiErr
 		}
+		providerAttempt = info.BeginProviderMetrics(c)
+		providerAttempt.SetStatus(http.StatusSwitchingProtocols)
 		if err := s.writeTarget(websocket.TextMessage, payload); err != nil {
 			state.closeAfter = true
 			return types.NewError(err, types.ErrorCodeBadResponse, types.ErrOptionWithSkipRetry())
@@ -311,8 +323,10 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 			}
 			adaptor := GetAdaptor(info.ApiType)
 			adaptor.Init(info)
+			providerAttempt = info.BeginProviderMetrics(c)
 			target, dialErr := relaychannel.DoWssRequest(adaptor, c, info, nil)
 			if dialErr != nil {
+				providerAttempt.Finish(0, "failure")
 				apiErr = service.NormalizeViolationFeeError(types.NewError(dialErr, types.ErrorCodeDoRequestFailed))
 				service.ResetStatusCode(apiErr, c.GetString("status_code_mapping"))
 				info.LastError = apiErr
@@ -452,6 +466,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 						responseID = event.Response.ID
 					}
 				}
+				info.GenerationMetrics.ObserveProviderPayload(string(incoming.body), time.Now())
 				accumulator.Observe(&event.ResponsesStreamResponse)
 			}
 			switch event.Type {
@@ -466,6 +481,8 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 			}
 			if err := s.writeClient(incoming.kind, incoming.body); err != nil {
 				s.shutdown()
+			} else {
+				info.GenerationMetrics.ObserveSitePayload(string(incoming.body), time.Now())
 			}
 			if accepted && pendingControl != nil {
 				if err := s.writeTarget(websocket.TextMessage, pendingControl); err != nil {

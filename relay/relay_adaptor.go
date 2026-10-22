@@ -6,6 +6,7 @@ import (
 
 	"github.com/QuantumNous/new-api/constant"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/pkg/metrics"
 	_ "github.com/QuantumNous/new-api/plugins"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/advancedcustom"
@@ -21,8 +22,8 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/deepseek"
 	"github.com/QuantumNous/new-api/relay/channel/dify"
 	"github.com/QuantumNous/new-api/relay/channel/gemini"
-	"github.com/QuantumNous/new-api/relay/channel/jimeng"
 	"github.com/QuantumNous/new-api/relay/channel/jev"
+	"github.com/QuantumNous/new-api/relay/channel/jimeng"
 	"github.com/QuantumNous/new-api/relay/channel/jina"
 	"github.com/QuantumNous/new-api/relay/channel/minimax"
 	"github.com/QuantumNous/new-api/relay/channel/mistral"
@@ -48,7 +49,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func GetAdaptor(apiType int) channel.Adaptor {
+func GetAdaptor(apiType int) (adaptor channel.Adaptor) {
+	defer func() {
+		if adaptor != nil && metrics.Current() != nil {
+			adaptor = &channel.MeteredAdaptor{Adaptor: adaptor}
+		}
+	}()
 	switch apiType {
 	case constant.APITypeAli:
 		return &ali.Adaptor{}

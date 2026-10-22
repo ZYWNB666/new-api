@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/metrics"
 	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -31,6 +33,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
 	"github.com/gorilla/websocket"
+	"github.com/prometheus/common/expfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -526,6 +529,29 @@ func assertResponsesWSAccounting(t *testing.T, fixture *responsesWSBillingTest, 
 }
 
 func TestResponsesWebSocketReusesConnectionAndSettlesEachRequest(t *testing.T) {
+	monitor := metrics.Enable()
+	readRequests := func(scope, channelID string) float64 {
+		response := httptest.NewRecorder()
+		monitor.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+		require.Equal(t, http.StatusOK, response.Code)
+		var parser expfmt.TextParser
+		families, err := parser.TextToMetricFamilies(response.Body)
+		require.NoError(t, err)
+		family := families["new_api_generation_requests_total"]
+		if family == nil {
+			return 0
+		}
+		for _, metric := range family.Metric {
+			labels := map[string]string{}
+			for _, label := range metric.Label {
+				labels[label.GetName()] = label.GetValue()
+			}
+			if labels["scope"] == scope && labels["channel_id"] == channelID && labels["status"] == "101" && labels["outcome"] == "success" {
+				return metric.GetCounter().GetValue()
+			}
+		}
+		return 0
+	}
 	type upstreamRequest struct {
 		Authorization      string
 		Type               string `json:"type"`
@@ -559,6 +585,8 @@ func TestResponsesWebSocketReusesConnectionAndSettlesEachRequest(t *testing.T) {
 		}
 	})
 	client, user, token := fixture.client, fixture.user, fixture.token
+	providerBefore := readRequests("provider", strconv.Itoa(fixture.channel.Id))
+	siteBefore := readRequests("site", "0")
 
 	for index, payload := range []string{
 		`{"type":"response.create","model":"ws-billing","input":"first","service_tier":"default"}`,
@@ -640,6 +668,8 @@ func TestResponsesWebSocketReusesConnectionAndSettlesEachRequest(t *testing.T) {
 	assert.Equal(t, 3000, token.UsedQuota)
 	assert.Equal(t, 97000, user.Quota)
 	assert.Equal(t, 3000, user.UsedQuota)
+	assert.Equal(t, float64(2), readRequests("provider", strconv.Itoa(fixture.channel.Id))-providerBefore)
+	assert.Equal(t, float64(2), readRequests("site", "0")-siteBefore, "each response.create counts once, rather than once per persistent connection")
 }
 
 // Both transports must reach the same upstream target with the same

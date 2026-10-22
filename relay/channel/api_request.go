@@ -13,6 +13,7 @@ import (
 
 	common2 "github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/pkg/metrics"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
@@ -406,6 +407,9 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		dialer.Proxy = http.ProxyURL(proxyURL)
 	}
 	targetConn, resp, err := dialer.DialContext(c.Request.Context(), fullRequestURL, targetHeader)
+	if resp != nil {
+		info.GenerationMetrics.SetProviderStatus(resp.StatusCode)
+	}
 	if err != nil {
 		statusCode := http.StatusInternalServerError
 		if resp != nil {
@@ -559,7 +563,12 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
-	resp, err := relayClient.Do(req)
+	var resp *http.Response
+	if monitor := metrics.Current(); monitor != nil {
+		resp, err = monitor.DoProviderUpstream(&relayClient, req, info.ChannelId, info.ChannelType)
+	} else {
+		resp, err = relayClient.Do(req)
+	}
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))

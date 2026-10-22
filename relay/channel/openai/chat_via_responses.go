@@ -84,6 +84,7 @@ func OaiResponsesToChatBufferedStreamHandler(c *gin.Context, info *relaycommon.R
 		}
 
 		var streamResp dto.ResponsesStreamResponse
+		info.GenerationMetrics.ObserveProviderPayload(data, time.Now())
 		if err := common.UnmarshalJsonStr(data, &streamResp); err != nil {
 			logger.LogError(c, "failed to unmarshal buffered responses stream event: "+err.Error())
 			streamErr = types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
@@ -201,8 +202,7 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 			streamErr = types.NewOpenAIError(err, types.ErrorCodeJsonMarshalFailed, http.StatusInternalServerError)
 			return false
 		}
-		c.Render(-1, common.CustomEvent{Data: "data: " + string(geminiResponseStr)})
-		_ = helper.FlushWriter(c)
+		_ = helper.StringData(c, string(geminiResponseStr))
 		return true
 	}
 

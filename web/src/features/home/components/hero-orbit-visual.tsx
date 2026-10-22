@@ -36,10 +36,31 @@ interface OrbitBadge {
 const ORBIT_BADGES: OrbitBadge[] = [
   { name: 'DeepSeek', icon: 'DeepSeek.Color', x: 6, y: 20, delay: 0, scale: 1 },
   { name: 'Qwen', icon: 'Qwen.Color', x: 76, y: 14, delay: 0.8, scale: 0.96 },
-  { name: 'Zhipu GLM', icon: 'Zhipu.Color', x: 80, y: 44, delay: 1.6, scale: 1 },
-  { name: 'Kimi', icon: 'Moonshot.Color', x: 4, y: 46, delay: 2.4, scale: 0.94 },
+  {
+    name: 'Zhipu GLM',
+    icon: 'Zhipu.Color',
+    x: 80,
+    y: 44,
+    delay: 1.6,
+    scale: 1,
+  },
+  {
+    name: 'Kimi',
+    icon: 'Moonshot.Color',
+    x: 4,
+    y: 46,
+    delay: 2.4,
+    scale: 0.94,
+  },
   { name: 'Doubao', icon: 'Doubao.Color', x: 74, y: 72, delay: 3.2, scale: 1 },
-  { name: 'MiniMax', icon: 'MiniMax.Color', x: 8, y: 76, delay: 4, scale: 0.96 },
+  {
+    name: 'MiniMax',
+    icon: 'MiniMax.Color',
+    x: 8,
+    y: 76,
+    delay: 4,
+    scale: 0.96,
+  },
 ]
 
 function GatewayCore() {
@@ -84,43 +105,39 @@ export function HeroOrbitVisual(props: { className?: string }) {
   const { t } = useTranslation()
 
   return (
-    <div
-      className={cn(
-        'relative mx-auto w-full max-w-xl overflow-hidden rounded-3xl',
-        'min-h-[300px] sm:min-h-[380px]',
-        props.className
-      )}
-    >
-      {/* Center core */}
-      <div className='absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2'>
-        <GatewayCore />
+    <div className={cn('mx-auto w-full max-w-xl', props.className)}>
+      <div className='relative min-h-[300px] overflow-hidden rounded-3xl sm:min-h-[380px]'>
+        {/* Center core */}
+        <div className='absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2'>
+          <GatewayCore />
+        </div>
+
+        {/* Floating model badges */}
+        {ORBIT_BADGES.map((badge) => (
+          <div
+            key={badge.name}
+            aria-hidden
+            className='hero-float-card absolute'
+            style={{
+              left: `${badge.x}%`,
+              top: `${badge.y}%`,
+              animationDelay: `${badge.delay}s`,
+            }}
+          >
+            <div
+              className='bg-card/95 border-border/70 flex items-center gap-2 rounded-xl border px-3 py-2 shadow-[0_10px_30px_-14px_rgba(15,23,42,0.25)] backdrop-blur'
+              style={{ transform: `scale(${badge.scale ?? 1})` }}
+            >
+              {getLobeIcon(badge.icon, 18)}
+              <span className='text-xs font-semibold whitespace-nowrap'>
+                {badge.name}
+              </span>
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* Floating model badges */}
-      {ORBIT_BADGES.map((badge) => (
-        <div
-          key={badge.name}
-          aria-hidden
-          className='hero-float-card absolute'
-          style={{
-            left: `${badge.x}%`,
-            top: `${badge.y}%`,
-            animationDelay: `${badge.delay}s`,
-          }}
-        >
-          <div
-            className='bg-card/95 border-border/70 flex items-center gap-2 rounded-xl border px-3 py-2 shadow-[0_10px_30px_-14px_rgba(15,23,42,0.25)] backdrop-blur'
-            style={{ transform: `scale(${badge.scale ?? 1})` }}
-          >
-            {getLobeIcon(badge.icon, 18)}
-            <span className='text-xs font-semibold whitespace-nowrap'>
-              {badge.name}
-            </span>
-          </div>
-        </div>
-      ))}
-
-      <p className='text-muted-foreground absolute inset-x-0 -bottom-2 text-center text-xs'>
+      <p className='text-muted-foreground mt-3 px-4 text-center text-xs leading-relaxed'>
         {t('One gateway routes your app to leading models')}
       </p>
     </div>

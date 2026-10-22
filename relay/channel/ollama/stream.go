@@ -160,6 +160,7 @@ func ollamaStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 
 	for scanner.Scan() {
 		line := scanner.Text()
+		info.GenerationMetrics.ObserveProviderPayload(line, time.Now())
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

@@ -95,7 +95,7 @@ export function ProductShowcase() {
           {/* Routing reliability card */}
           <AnimateInView
             animation='scale-in'
-            className='bg-card border-border/80 flex flex-col rounded-2xl border p-6 shadow-xs md:p-8'
+            className='bg-card border-border/80 flex min-w-0 flex-col rounded-2xl border p-6 shadow-xs md:p-8'
           >
             <div className='mb-6 flex items-center gap-3'>
               <span className='bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg'>
@@ -166,7 +166,7 @@ export function ProductShowcase() {
           <AnimateInView
             animation='scale-in'
             delay={120}
-            className='bg-card border-border/80 flex flex-col rounded-2xl border p-6 shadow-xs md:p-8'
+            className='bg-card border-border/80 flex min-w-0 flex-col rounded-2xl border p-6 shadow-xs md:p-8'
           >
             <div className='mb-6 flex items-center gap-3'>
               <span className='bg-primary/10 text-primary flex size-9 items-center justify-center rounded-lg'>
@@ -177,7 +177,9 @@ export function ProductShowcase() {
                   {t('Use a familiar API')}
                 </h3>
                 <p className='text-muted-foreground text-xs'>
-                  {t('OpenAI-compatible across Chat, Responses, Claude, Gemini')}
+                  {t(
+                    'OpenAI-compatible across Chat, Responses, Claude, Gemini'
+                  )}
                 </p>
               </div>
             </div>

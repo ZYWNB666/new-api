@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/pkg/metrics"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
@@ -192,7 +193,8 @@ type RelayInfo struct {
 	// 若为空，调用 GetFinalRequestRelayFormat 会回退到 RequestConversionChain 的最后一项或 RelayFormat。
 	FinalRequestRelayFormat types.RelayFormat
 
-	StreamStatus *StreamStatus
+	StreamStatus      *StreamStatus
+	GenerationMetrics *metrics.Generation
 	// PerformanceOutputTokens is captured by settlement and sampled once at
 	// the request boundary, independently of billing success or failure.
 	PerformanceOutputTokens      int64
@@ -971,6 +973,29 @@ func (info *RelayInfo) SetFirstResponseTime() {
 		info.FirstResponseTime = time.Now()
 		info.isFirstResponse = false
 	}
+}
+
+// BeginProviderMetrics starts one provider invocation after conversion and before I/O.
+func (info *RelayInfo) BeginProviderMetrics(c *gin.Context) *metrics.ProviderAttempt {
+	monitor := metrics.Current()
+	if monitor == nil {
+		return nil
+	}
+	if info.GenerationMetrics == nil {
+		started := info.StartTime
+		if value, ok := c.Get(metrics.GenerationStartContextKey); ok {
+			if requestStarted, ok := value.(time.Time); ok {
+				started = requestStarted
+			}
+		}
+		info.GenerationMetrics = monitor.NewGeneration(started)
+		c.Set(metrics.GenerationContextKey, info.GenerationMetrics)
+	}
+	channelID, channelType := 0, 0
+	if info.ChannelMeta != nil {
+		channelID, channelType = info.ChannelId, info.ChannelType
+	}
+	return info.GenerationMetrics.BeginAttempt(channelID, channelType, info.IsStream, time.Now())
 }
 
 func (info *RelayInfo) HasSendResponse() bool {

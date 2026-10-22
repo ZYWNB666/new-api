@@ -45,6 +45,7 @@ func cfStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Res
 		}
 		data = strings.TrimPrefix(data, "data: ")
 		data = strings.TrimSuffix(data, "\r")
+		info.GenerationMetrics.ObserveProviderPayload(data, time.Now())
 
 		if data == "[DONE]" {
 			break

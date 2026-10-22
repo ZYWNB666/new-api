@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/metrics"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/perf_metrics_setting"
@@ -35,6 +36,12 @@ func RecordRelayResult(ctx context.Context, info *relaycommon.RelayInfo, apiErr 
 		return
 	}
 	outcome := ClassifyRelayOutcome(ctx, info, apiErr)
+	info.GenerationMetrics.SetOutcome(string(outcome))
+	if monitor := metrics.Current(); monitor != nil {
+		ttft, hasTTFT := info.GenerationMetrics.SiteTTFT()
+		monitor.ObserveRelay(string(outcome), info.IsStream, ttft, hasTTFT && outcome != OutcomeIgnored)
+		monitor.ObserveRelayDetails(info.RetryIndex, info.IsStream, string(info.StreamStatus.OutcomeSnapshot().EndReason))
+	}
 	if outcome == OutcomeIgnored {
 		return
 	}

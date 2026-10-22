@@ -17,12 +17,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link } from '@tanstack/react-router'
-import { ArrowRight, BrainCircuit, ListChecks, Gauge, Sigma } from 'lucide-react'
+import {
+  ArrowRight,
+  BrainCircuit,
+  ListChecks,
+  Gauge,
+  Sigma,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { AnimateInView } from '@/components/animate-in-view'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+
+import { useHomeApiUrl } from '../../hooks/use-home-api-url'
 
 const QUESTION_TYPES = [
   {
@@ -42,7 +50,11 @@ const QUESTION_TYPES = [
   },
 ] as const
 
-const CURL_EXAMPLE = `curl https://api.your-domain.com/v1/decisions \\
+export function JevShowcase() {
+  const { t } = useTranslation()
+  const apiBaseUrl = useHomeApiUrl()
+
+  const curlExample = `curl ${apiBaseUrl}/v1/decisions \\
   -H "Authorization: Bearer <token>" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -60,9 +72,6 @@ const CURL_EXAMPLE = `curl https://api.your-domain.com/v1/decisions \\
       }
     }
   }'`
-
-export function JevShowcase() {
-  const { t } = useTranslation()
 
   return (
     <section className='border-border/40 relative z-10 border-t px-6 py-24 md:py-32'>
@@ -114,20 +123,20 @@ export function JevShowcase() {
           <AnimateInView
             delay={150}
             animation='scale-in'
-            className='landing-motion-card border-border/50 bg-background/70 md:col-span-3'
+            className='landing-motion-card border-border/50 bg-background/70 min-w-0 md:col-span-3'
           >
             <div className='border-border/50 bg-muted/30 flex items-center justify-between rounded-t-2xl border-b px-5 py-3'>
               <div className='flex items-center gap-1.5'>
-                <span className='bg-red-400/70 size-2.5 rounded-full' />
-                <span className='bg-amber-400/70 size-2.5 rounded-full' />
-                <span className='bg-green-400/70 size-2.5 rounded-full' />
+                <span className='size-2.5 rounded-full bg-red-400/70' />
+                <span className='size-2.5 rounded-full bg-amber-400/70' />
+                <span className='size-2.5 rounded-full bg-green-400/70' />
               </div>
               <code className='text-muted-foreground text-xs'>
                 POST /v1/decisions
               </code>
             </div>
             <pre className='text-muted-foreground overflow-x-auto rounded-b-2xl p-5 text-start text-xs leading-relaxed'>
-              <code>{CURL_EXAMPLE}</code>
+              <code>{curlExample}</code>
             </pre>
           </AnimateInView>
         </div>

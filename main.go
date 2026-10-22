@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,6 +25,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/oauth"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	"github.com/QuantumNous/new-api/pkg/metrics"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
 	"github.com/QuantumNous/new-api/pkg/wsmanager"
 	"github.com/QuantumNous/new-api/relay"
@@ -37,6 +39,7 @@ import (
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	"gorm.io/gorm"
 
 	_ "net/http/pprof"
 )
@@ -179,6 +182,35 @@ func main() {
 
 	// Initialize HTTP server
 	server := gin.New()
+	var metricsServer *http.Server
+	if common.GetEnvOrDefaultBool("METRICS_ENABLED", false) {
+		monitor := metrics.Enable()
+		for name, db := range map[string]*gorm.DB{"main": model.DB, "log": model.LOG_DB} {
+			if db == nil || (name == "log" && model.LOG_DB == model.DB) {
+				continue
+			}
+			sqlDB, err := db.DB()
+			if err == nil {
+				err = monitor.RegisterDatabase(name, sqlDB)
+			}
+			if err != nil {
+				common.SysError(fmt.Sprintf("failed to register %s database pool metrics: %v", name, err))
+			}
+		}
+		if common.RedisEnabled && common.RDB != nil {
+			if err := monitor.RegisterRedis(common.RDB); err != nil {
+				common.SysError(fmt.Sprintf("failed to register Redis pool metrics: %v", err))
+			}
+		}
+		server.Use(monitor.Middleware())
+		metricsServer = &http.Server{
+			Addr:              common.GetEnvOrDefaultString("METRICS_ADDR", "127.0.0.1:9090"),
+			Handler:           monitor.Handler(),
+			ReadHeaderTimeout: 5 * time.Second,
+			WriteTimeout:      15 * time.Second,
+			IdleTimeout:       60 * time.Second,
+		}
+	}
 	if err := middleware.ConfigureTrustedProxies(server); err != nil {
 		common.FatalLog("failed to configure trusted proxies: " + err.Error())
 		return
@@ -210,6 +242,19 @@ func main() {
 	if port == "" {
 		port = strconv.Itoa(*common.Port)
 	}
+	if metricsServer != nil {
+		listener, err := net.Listen("tcp", metricsServer.Addr)
+		if err != nil {
+			common.FatalLog(fmt.Sprintf("failed to listen for Prometheus metrics: %v", err))
+			return
+		}
+		go func() {
+			if err := metricsServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				common.SysError(fmt.Sprintf("Prometheus metrics server failed: %v", err))
+			}
+		}()
+		common.SysLog("Prometheus metrics available at " + listener.Addr().String() + "/metrics")
+	}
 
 	srv := &http.Server{
 		Addr:    ":" + port,
@@ -237,6 +282,11 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
 		common.SysError(fmt.Sprintf("server forced to shutdown: %v", err))
+	}
+	if metricsServer != nil {
+		if err := metricsServer.Shutdown(ctx); err != nil {
+			common.SysError(fmt.Sprintf("metrics server forced to shutdown: %v", err))
+		}
 	}
 	// 内存中的看板数据保存入库，避免重启丢失未落库数据 (issue #5679)
 	if common.DataExportEnabled {

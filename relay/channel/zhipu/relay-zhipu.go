@@ -171,6 +171,9 @@ func zhipuStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 					continue
 				}
 				if line[:5] == "data:" {
+					if strings.TrimSpace(line[5:]) != "" {
+						info.GenerationMetrics.ObserveProviderContent(time.Now())
+					}
 					dataChan <- line[5:]
 					if i != len(lines)-1 {
 						dataChan <- "\n"
@@ -195,7 +198,7 @@ func zhipuStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.
 				common.SysLog("error marshalling stream response: " + err.Error())
 				return true
 			}
-			c.Render(-1, common.CustomEvent{Data: "data: " + string(jsonResponse)})
+			_ = helper.StringData(c, string(jsonResponse))
 			return true
 		case data := <-metaChan:
 			var zhipuResponse ZhipuStreamMetaResponse

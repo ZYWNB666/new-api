@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/middleware"
+	"github.com/QuantumNous/new-api/pkg/metrics"
 	"github.com/QuantumNous/new-api/relay"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -37,7 +38,9 @@ var responsesWSRequestEngine = sync.OnceValue(func() *gin.Engine {
 	engine.POST("/v1/responses", func(c *gin.Context) {
 		state := c.Request.Context().Value(responsesWSRequestContextKey{}).(*responsesWSRequestState)
 		c.Set(common.RequestIdKey, state.requestID)
-		common.SetContextKey(c, constant.ContextKeyRequestStartTime, time.Now())
+		started := time.Now()
+		common.SetContextKey(c, constant.ContextKeyRequestStartTime, started)
+		c.Set(metrics.GenerationStartContextKey, started)
 		c.Next()
 	}, middleware.BodyStorageCleanup(), middleware.TokenAuth(), middleware.ModelRequestRateLimit(), func(c *gin.Context) {
 		state := c.Request.Context().Value(responsesWSRequestContextKey{}).(*responsesWSRequestState)

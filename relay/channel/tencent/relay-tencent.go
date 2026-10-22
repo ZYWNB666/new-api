@@ -103,6 +103,7 @@ func tencentStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *htt
 			continue
 		}
 		data = strings.TrimPrefix(data, "data:")
+		info.GenerationMetrics.ObserveProviderPayload(data, time.Now())
 
 		var tencentResponse TencentChatResponse
 		err := common.Unmarshal([]byte(data), &tencentResponse)

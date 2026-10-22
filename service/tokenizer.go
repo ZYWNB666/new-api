@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/pkg/metrics"
 	"github.com/tiktoken-go/tokenizer"
 	"github.com/tiktoken-go/tokenizer/codec"
 )
@@ -58,6 +59,13 @@ func getTokenNum(tokenEncoder tokenizer.Codec, text string) int {
 	if text == "" {
 		return 0
 	}
-	tkm, _ := tokenEncoder.Count(text)
+	monitor := metrics.Current()
+	if monitor == nil {
+		tkm, _ := tokenEncoder.Count(text)
+		return tkm
+	}
+	started := monitor.StartTokenCount()
+	tkm, err := tokenEncoder.Count(text)
+	monitor.FinishTokenCount(tokenEncoder.GetName(), started, len(text), tkm, err)
 	return tkm
 }

@@ -20,9 +20,7 @@ import { useState, useEffect, useRef, type ReactNode } from 'react'
 
 import { cn } from '@/lib/utils'
 
-// Example gateway host shown in the demo. Users replace this with their own
-// deployment address (the docs page explains the Base URL in detail).
-const API_BASE_URL = 'https://api.your-domain.com'
+import { useHomeApiUrl } from '../hooks/use-home-api-url'
 
 type AccentTone = 'emerald' | 'amber' | 'blue' | 'violet'
 
@@ -173,6 +171,7 @@ interface HeroTerminalDemoProps {
 }
 
 export function HeroTerminalDemo(props: HeroTerminalDemoProps) {
+  const apiBaseUrl = useHomeApiUrl()
   const [activeIndex, setActiveIndex] = useState(0)
   const [transitioning, setTransitioning] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined)
@@ -274,7 +273,7 @@ export function HeroTerminalDemo(props: HeroTerminalDemoProps) {
               transitioning ? 'opacity-0' : 'opacity-100'
             )}
           >
-            {API_BASE_URL}
+            {apiBaseUrl}
             {demo.endpoint}
           </code>
         </div>
@@ -282,7 +281,11 @@ export function HeroTerminalDemo(props: HeroTerminalDemoProps) {
         {/* Body — fixed rows so neither block shifts when switching demos */}
         <div className='grid h-[400px] grid-rows-[235px_minmax(0,1fr)] font-mono text-[12.5px] leading-[1.55]'>
           {/* Request */}
-          <RequestBlock demo={demo} transitioning={transitioning} />
+          <RequestBlock
+            demo={demo}
+            apiBaseUrl={apiBaseUrl}
+            transitioning={transitioning}
+          />
 
           {/* Response */}
           <ResponseBlock demo={demo} transitioning={transitioning} />
@@ -322,11 +325,15 @@ export function HeroTerminalDemo(props: HeroTerminalDemoProps) {
   )
 }
 
-function RequestBlock(props: { demo: ApiDemoConfig; transitioning: boolean }) {
-  const { demo, transitioning } = props
+function RequestBlock(props: {
+  demo: ApiDemoConfig
+  apiBaseUrl: string
+  transitioning: boolean
+}) {
+  const { demo, apiBaseUrl, transitioning } = props
 
   return (
-    <div className='relative px-5 py-4'>
+    <div className='relative overflow-auto px-5 py-4'>
       <SectionLabel>Request</SectionLabel>
       <div
         className={cn(
@@ -337,7 +344,7 @@ function RequestBlock(props: { demo: ApiDemoConfig; transitioning: boolean }) {
         <CodeLine>
           <Command>curl</Command> <Flag>-X</Flag> <Flag>POST</Flag>{' '}
           <StringText>
-            &quot;{API_BASE_URL}
+            &quot;{apiBaseUrl}
             {demo.endpoint}&quot;
           </StringText>{' '}
           <Muted>{'\\'}</Muted>
@@ -370,7 +377,7 @@ function ResponseBlock(props: { demo: ApiDemoConfig; transitioning: boolean }) {
   return (
     <div
       className={cn(
-        'relative border-t px-5 py-4',
+        'relative overflow-auto border-t px-5 py-4',
         'border-border/40 bg-muted/20 dark:border-white/[0.05] dark:bg-white/[0.015]'
       )}
     >

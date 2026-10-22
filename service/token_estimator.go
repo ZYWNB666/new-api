@@ -4,7 +4,10 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
+
+	"github.com/QuantumNous/new-api/pkg/metrics"
 )
 
 // Provider 定义模型厂商大类
@@ -67,6 +70,11 @@ func getMultipliers(p Provider) multipliers {
 
 // EstimateToken 计算 Token 数量
 func EstimateToken(provider Provider, text string) int {
+	monitor := metrics.Current()
+	var started time.Time
+	if monitor != nil {
+		started = monitor.StartTokenCount()
+	}
 	m := getMultipliers(provider)
 	var count float64
 
@@ -144,7 +152,11 @@ func EstimateToken(provider Provider, text string) int {
 	}
 
 	// 向上取整并加上基础 padding
-	return int(math.Ceil(count)) + m.BasePad
+	tokens := int(math.Ceil(count)) + m.BasePad
+	if monitor != nil {
+		monitor.FinishTokenCount("estimate", started, len(text), tokens, nil)
+	}
+	return tokens
 }
 
 // 辅助：判断是否为 CJK 字符

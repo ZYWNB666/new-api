@@ -16,11 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import type { ComponentProps } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { HeroTerminalDemo } from '../components/hero-terminal-demo'
 import { Hero } from '../components/sections/hero'
+import { JevShowcase } from '../components/sections/jev-showcase'
+
+const config = vi.hoisted(() => ({ serverAddress: '' }))
 
 vi.mock('@tanstack/react-router', () => ({
   Link: (props: ComponentProps<'a'> & { to: string }) => {
@@ -30,7 +34,9 @@ vi.mock('@tanstack/react-router', () => ({
 }))
 
 vi.mock('@/hooks/use-status', () => ({
-  useStatus: () => ({ status: { docs_link: 'https://docs.example.com' } }),
+  useStatus: () => ({
+    status: { server_address: config.serverAddress },
+  }),
 }))
 
 vi.mock('@/hooks/use-system-config', () => ({
@@ -75,9 +81,19 @@ describe('home hero', () => {
       '/sign-up'
     )
     expect(container.querySelector('.hero-orbit-core')).not.toBeNull()
-    expect(container.querySelectorAll('.hero-float-card').length).toBeGreaterThan(
-      0
+    expect(
+      container.querySelectorAll('.hero-float-card').length
+    ).toBeGreaterThan(0)
+  })
+
+  it('keeps the gateway caption in normal flow below the clipped artwork', () => {
+    render(<Hero />)
+
+    const caption = screen.getByText(
+      'One gateway routes your app to leading models'
     )
+    expect(caption).not.toHaveClass('absolute')
+    expect(caption.parentElement).not.toHaveClass('overflow-hidden')
   })
 
   it('keeps the authenticated dashboard action', () => {
@@ -87,5 +103,73 @@ describe('home hero', () => {
       screen.getByRole('button', { name: /Go to Dashboard/ })
     ).toHaveAttribute('href', '/dashboard')
     expect(screen.queryByRole('button', { name: /Get Started/ })).toBeNull()
+  })
+})
+
+describe('home API examples', () => {
+  afterEach(() => {
+    config.serverAddress = ''
+    vi.useRealTimers()
+  })
+
+  it('uses the configured address for every protocol and reacts to configuration updates', () => {
+    vi.useFakeTimers()
+    config.serverAddress = ' https://gateway.example.com/proxy/ '
+    const { container, rerender } = render(
+      <>
+        <HeroTerminalDemo />
+        <JevShowcase />
+      </>
+    )
+
+    expect(container.textContent).toContain(
+      'curl https://gateway.example.com/proxy/v1/decisions'
+    )
+    for (const [tab, endpoint] of [
+      ['Chat', '/v1/chat/completions'],
+      ['Responses', '/v1/responses'],
+      ['Claude', '/v1/messages'],
+      ['Gemini', '/v1beta/models/{model}:generateContent'],
+    ]) {
+      act(() => {
+        screen.getByRole('button', { name: tab }).click()
+      })
+      act(() => {
+        vi.runOnlyPendingTimers()
+      })
+      expect(container.textContent).toContain(
+        `curl -X POST "https://gateway.example.com/proxy${endpoint}"`
+      )
+    }
+
+    config.serverAddress = 'https://updated.example.com'
+    rerender(
+      <>
+        <HeroTerminalDemo />
+        <JevShowcase />
+      </>
+    )
+    expect(container.textContent).toContain(
+      'curl https://updated.example.com/v1/decisions'
+    )
+    expect(container.textContent).toContain(
+      'curl -X POST "https://updated.example.com/v1beta/models/{model}:generateContent"'
+    )
+    expect(container.textContent).not.toContain('gateway.example.com')
+  })
+
+  it('falls back to the current origin when no address is configured', () => {
+    const { container } = render(
+      <>
+        <HeroTerminalDemo />
+        <JevShowcase />
+      </>
+    )
+    expect(container.textContent).toContain(
+      `curl -X POST "${window.location.origin}/v1/chat/completions"`
+    )
+    expect(container.textContent).toContain(
+      `curl ${window.location.origin}/v1/decisions`
+    )
   })
 })
