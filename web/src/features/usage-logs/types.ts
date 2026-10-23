@@ -147,6 +147,18 @@ export interface LogOtherData {
     // Reject / intercept reason (admin only)
     reject_reason?: string
     task_plugin?: TaskPluginInfo
+    // Upstream model mapping. Admin-only because it reveals which real model
+    // a channel serves; the backend stores these under admin_info so the
+    // public view never receives them.
+    is_model_mapped?: boolean
+    upstream_model_name?: string
+    // Diagnostic only. Whether the names disagree is derived in the UI via
+    // isResponseModelMismatch so old rows follow the current comparison rule.
+    response_model?: {
+      requested_model: string
+      upstream_model: string
+      returned_model: string
+    }
   }
   root_info?: {
     task_plugin?: TaskPluginRuntimeInfo
@@ -195,15 +207,8 @@ export interface LogOtherData {
   cache_creation_ratio?: number
   cache_creation_ratio_5m?: number
   cache_creation_ratio_1h?: number
-  is_model_mapped?: boolean
-  upstream_model_name?: string
-  // Diagnostic only. Whether the names disagree is derived in the UI via
-  // isResponseModelMismatch so old rows follow the current comparison rule.
-  response_model?: {
-    requested_model: string
-    upstream_model: string
-    returned_model: string
-  }
+  // Upstream model details are admin-only (stored under admin_info by the
+  // backend), so they are intentionally absent from the public top level.
   audio_ratio?: number
   audio_completion_ratio?: number
   frt?: number

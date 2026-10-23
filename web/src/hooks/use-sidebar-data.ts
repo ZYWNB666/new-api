@@ -170,6 +170,12 @@ export function useSidebarData(): SidebarData {
             icon: CreditCard,
           },
           {
+            title: t('Gateway rate limits'),
+            url: '/rate-limits',
+            icon: Activity,
+            requiredRole: ROLE.SUPER_ADMIN,
+          },
+          {
             title: t('System Info'),
             url: '/system-info',
             icon: ServerCog,

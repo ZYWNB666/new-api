@@ -140,6 +140,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}()
 
+	relayInfo.InitGenerationMetrics(c)
+	defer relayInfo.FinishGatewayLimits()
 	if newAPIError = relay.PrepareRequestBilling(c, relayInfo); newAPIError != nil {
 		return
 	}
@@ -156,6 +158,8 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
+	capacityProbes := 0
+	var capacityError *types.NewAPIError
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.StreamStatus = nil
@@ -166,6 +170,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if channelErr != nil {
 			logger.LogError(c, channelErr.Error())
 			newAPIError = channelErr
+			if capacityError != nil {
+				newAPIError = relaycommon.GatewayLimitError(c, capacityError.Err)
+			}
 			break
 		}
 		service.AppendUsedChannel(c, channel.Id)
@@ -197,6 +204,17 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			newAPIError = relayHandler(c, relayInfo)
 		}
 
+		relayInfo.FinishProviderLimit()
+		if limitErr := relaycommon.GatewayProviderError(c); limitErr != nil {
+			newAPIError = relaycommon.GatewayLimitError(c, limitErr)
+			capacityError = newAPIError
+			capacityProbes++
+			if service.RerouteGatewayLimit(c, retryParam, limitErr, capacityProbes) {
+				c.Header("Retry-After", "")
+				continue
+			}
+			break
+		}
 		if newAPIError == nil {
 			service.MarkRequestPolicySuccess(c, relayInfo.StreamStatus)
 			relayInfo.LastError = nil
@@ -317,6 +335,22 @@ func RelayMidjourney(c *gin.Context) {
 		return
 	}
 
+	switch relayInfo.RelayMode {
+	case relayconstant.RelayModeMidjourneyNotify, relayconstant.RelayModeMidjourneyTaskFetch, relayconstant.RelayModeMidjourneyTaskFetchByCondition, relayconstant.RelayModeMidjourneyTaskImageSeed:
+	default:
+		defer relayInfo.FinishGatewayLimits()
+		limitErr := relayInfo.AcquireRequestLimit(c, 0)
+		if limitErr == nil {
+			if err := relayInfo.AcquireProviderLimit(c, c.GetInt("channel_id")); err != nil {
+				limitErr = relaycommon.GatewayLimitError(c, err)
+			}
+		}
+		if limitErr != nil {
+			c.JSON(limitErr.StatusCode, gin.H{"error": limitErr.ToOpenAIError()})
+			return
+		}
+		relayInfo.MarkGatewaySent()
+	}
 	var mjErr *taskdto.MidjourneyResponse
 	switch relayInfo.RelayMode {
 	case relayconstant.RelayModeMidjourneyNotify:
@@ -476,6 +510,9 @@ func executeTaskSubmissionWith(
 	relayInfo *relaycommon.RelayInfo,
 	submit taskSubmitAttempt,
 ) (*taskSubmissionOutcome, *taskdto.TaskError) {
+	if apiErr := relayInfo.AcquireRequestLimit(c, 0); apiErr != nil {
+		return nil, service.TaskErrorWrapperLocal(apiErr.Err, "gateway_rate_limit", apiErr.StatusCode)
+	}
 	policy := service.RequestPolicy(c)
 	diagnostics := newTaskPluginSubmitDiagnostics(c)
 	diagnostics.start(relayInfo)
@@ -483,6 +520,8 @@ func executeTaskSubmissionWith(
 	var taskErr *taskdto.TaskError
 	durable := false
 	stage := "start"
+	capacityProbes := 0
+	var capacityError *taskdto.TaskError
 	defer func() {
 		if !durable && relayInfo.Billing != nil {
 			diagnostics.refund(stage)
@@ -527,6 +566,9 @@ func executeTaskSubmissionWith(
 			if channelErr != nil {
 				logger.LogError(c, channelErr.Error())
 				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", channelErr.StatusCode)
+				if capacityError != nil {
+					taskErr = capacityError
+				}
 				break
 			}
 		}
@@ -546,13 +588,32 @@ func executeTaskSubmissionWith(
 		c.Request.Body = io.NopCloser(bodyStorage)
 
 		stage = "submit"
+		if limitErr := relayInfo.AcquireProviderLimit(c, channel.Id); limitErr != nil {
+			apiErr := relaycommon.GatewayLimitError(c, limitErr)
+			taskErr = service.TaskErrorWrapperLocal(limitErr, "gateway_rate_limit", apiErr.StatusCode)
+			capacityError = taskErr
+			capacityProbes++
+			relaycommon.GatewayProviderError(c)
+			if relayInfo.LockedChannel == nil && service.RerouteGatewayLimit(c, retryParam, limitErr, capacityProbes) {
+				relayInfo.InitChannelMeta(c)
+				continue
+			}
+			break
+		}
+		relayInfo.MarkGatewaySent()
 		result, taskErr = submit(c, relayInfo)
+		if taskErr == nil && result != nil && result.Immediate != nil && result.Immediate.TotalTokens > 0 {
+			relayInfo.GatewayRequestLimit.ReportUsage(int64(result.Immediate.TotalTokens))
+			relayInfo.GatewayProviderLimit.ReportUsage(int64(result.Immediate.TotalTokens))
+		}
+		relayInfo.FinishProviderLimit()
 		if requestErr := c.Request.Context().Err(); requestErr != nil {
 			diagnostics.cancelled("after_submit", retryParam.GetRetry()+1)
 			taskErr = service.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)
 			break
 		}
 		if taskErr == nil {
+			c.Header("Retry-After", "")
 			diagnostics.attemptSucceeded(retryParam.GetRetry()+1, result)
 			break
 		}

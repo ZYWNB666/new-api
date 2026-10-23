@@ -21,6 +21,10 @@ type MeteredAdaptor struct {
 }
 
 func (a *MeteredAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, body io.Reader) (response any, err error) {
+	if err = info.AcquireProviderLimit(c, info.ChannelId); err != nil {
+		return nil, err
+	}
+	info.MarkGatewaySent()
 	monitor := metrics.Current()
 	if monitor == nil {
 		return a.Adaptor.DoRequest(c, info, body)
@@ -59,6 +63,12 @@ func (a *MeteredAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *r
 	}()
 	usage, apiErr = a.Adaptor.DoResponse(c, resp, info)
 	returned = true
+	if value, ok := usage.(*dto.Usage); ok && value != nil {
+		info.ReportGatewayUsage(value.PromptTokens, value.CompletionTokens)
+	}
+	if value, ok := usage.(*dto.RealtimeUsage); ok && value != nil {
+		info.ReportGatewayUsage(value.InputTokens, value.OutputTokens)
+	}
 	if a.attempt == nil {
 		return usage, apiErr
 	}
@@ -75,8 +85,10 @@ func (a *MeteredAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *r
 		}
 	}
 	var tokens int64
+	info.ReportPromptCacheUsage(nil)
 	if value, ok := usage.(*dto.Usage); ok && value != nil {
 		tokens = int64(value.CompletionTokens)
+		info.ReportPromptCacheUsage(value)
 	}
 	a.attempt.Finish(tokens, string(perfmetrics.ClassifyRelayOutcome(c.Request.Context(), info, apiErr)))
 	return usage, apiErr

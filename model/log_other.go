@@ -21,6 +21,13 @@ var legacySensitiveLogOtherKeys = []string{
 	"channel_name",
 	"channel_type",
 	"reject_reason",
+	// Model-mapping details were once published at the top level. They now live
+	// under admin_info, but rows written before that change still carry the old
+	// keys, so they are stripped here as well to keep the real upstream model
+	// name away from non-admin viewers.
+	"is_model_mapped",
+	"upstream_model_name",
+	"response_model",
 }
 
 type logOtherVisibility int

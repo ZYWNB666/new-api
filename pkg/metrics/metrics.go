@@ -3,7 +3,9 @@ package metrics
 
 import (
 	"net/http"
+	"os"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -16,29 +18,38 @@ import (
 var current atomic.Pointer[Metrics]
 
 type Metrics struct {
-	registry           *prometheus.Registry
-	httpRequests       *prometheus.CounterVec
-	httpDuration       *prometheus.HistogramVec
-	httpInFlight       prometheus.Gauge
-	relayRequests      *prometheus.CounterVec
-	relayTTFT          prometheus.Histogram
-	relayRetries       prometheus.Histogram
-	streamEnds         *prometheus.CounterVec
-	upstreamRequests   *prometheus.CounterVec
-	upstreamDuration   *prometheus.HistogramVec
-	upstreamInFlight   prometheus.Gauge
-	connectionAcquire  prometheus.Histogram
-	connections        *prometheus.CounterVec
-	tokenizerDuration  *prometheus.HistogramVec
-	tokenizerBytes     *prometheus.CounterVec
-	tokenizerTokens    *prometheus.CounterVec
-	tokenizerInFlight  prometheus.Gauge
-	generationRequests *prometheus.CounterVec
-	generationTTFT     *prometheus.HistogramVec
-	generationTPOT     *prometheus.HistogramVec
-	generationTPS      *prometheus.HistogramVec
-	generationTokens   *prometheus.CounterVec
-	generationSamples  *prometheus.CounterVec
+	registry              *prometheus.Registry
+	dimensionsMu          sync.Mutex
+	dimensions            map[generationDimensions]struct{}
+	dimensionLimit        int
+	dimensionOverflow     prometheus.Counter
+	dimensionCount        prometheus.Gauge
+	dimensionCapacity     prometheus.Gauge
+	httpRequests          *prometheus.CounterVec
+	httpDuration          *prometheus.HistogramVec
+	httpInFlight          prometheus.Gauge
+	relayRequests         *prometheus.CounterVec
+	relayTTFT             prometheus.Histogram
+	relayRetries          prometheus.Histogram
+	streamEnds            *prometheus.CounterVec
+	upstreamRequests      *prometheus.CounterVec
+	upstreamDuration      *prometheus.HistogramVec
+	upstreamInFlight      prometheus.Gauge
+	connectionAcquire     prometheus.Histogram
+	connections           *prometheus.CounterVec
+	tokenizerDuration     *prometheus.HistogramVec
+	tokenizerBytes        *prometheus.CounterVec
+	tokenizerTokens       *prometheus.CounterVec
+	tokenizerInFlight     prometheus.Gauge
+	generationRequests    *prometheus.CounterVec
+	generationTTFT        *prometheus.HistogramVec
+	generationTPOT        *prometheus.HistogramVec
+	generationTPS         *prometheus.HistogramVec
+	generationTokens      *prometheus.CounterVec
+	generationSamples     *prometheus.CounterVec
+	generationInput       *prometheus.CounterVec
+	generationCachedInput *prometheus.CounterVec
+	generationCacheUsage  *prometheus.CounterVec
 }
 
 // Enable activates instrumentation. Call once during startup, before serving requests.
@@ -57,29 +68,47 @@ func Current() *Metrics {
 
 // New creates an isolated registry, including Go runtime and process collectors.
 func New() *Metrics {
+	limit := 2000
+	if configured, err := strconv.Atoi(os.Getenv("METRICS_MAX_GENERATION_LABELSETS")); err == nil && configured > 0 && configured <= 100000 {
+		limit = configured
+	}
 	m := &Metrics{
-		registry: prometheus.NewRegistry(),
+		dimensions:        make(map[generationDimensions]struct{}),
+		dimensionLimit:    limit,
+		dimensionOverflow: prometheus.NewCounter(prometheus.CounterOpts{Name: "new_api_generation_dimension_overflow_total", Help: "Generation observations aggregated into __other__ after the model/tenant/channel labelset budget is reached; request and token totals remain counted."}),
+		dimensionCount:    prometheus.NewGauge(prometheus.GaugeOpts{Name: "new_api_generation_dimension_labelsets", Help: "Admitted model/tenant/channel labelsets retained in this process."}),
+		dimensionCapacity: prometheus.NewGauge(prometheus.GaugeOpts{Name: "new_api_generation_dimension_labelset_limit", Help: "Configured model/tenant/channel labelset budget per process."}),
+		registry:          prometheus.NewRegistry(),
 		generationRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "new_api_generation_requests_total", Help: "Finished site requests or provider adaptor calls, including HTTP status and protocol outcome. Provider calls include SDK paths; SDK-internal retries are one adaptor call.",
-		}, []string{"scope", "channel_id", "channel_type", "stream", "status", "outcome"}),
+		}, []string{"scope", "channel_id", "channel_type", "model", "tenant_id", "stream", "status", "outcome"}),
 		generationTTFT: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name: "new_api_generation_time_to_first_token_seconds", Help: "Time to first nonempty text, reasoning or tool payload; provider measures receipt, site measures successful forwarding. Non-streaming responses are excluded.",
 			Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300},
-		}, []string{"scope", "channel_id", "channel_type"}),
+		}, []string{"scope", "channel_id", "channel_type", "model", "tenant_id"}),
 		generationTPOT: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name: "new_api_generation_time_per_output_token_seconds", Help: "Request-average decoding interval: (last content time - first content time) / (output tokens - 1). Uses adaptor usage, including estimates and hidden reasoning when reported; not per-token timestamps.",
 			Buckets: []float64{0.0001, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 5},
-		}, []string{"scope", "channel_id", "channel_type"}),
+		}, []string{"scope", "channel_id", "channel_type", "model", "tenant_id"}),
 		generationTPS: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name: "new_api_generation_tokens_per_second", Help: "Request-average decoding speed: (output tokens - 1) / (last content time - first content time). Only successful streaming calls with usable content timing and usage are sampled.",
 			Buckets: []float64{1, 2, 5, 10, 20, 30, 50, 75, 100, 150, 250, 500, 1000},
-		}, []string{"scope", "channel_id", "channel_type"}),
+		}, []string{"scope", "channel_id", "channel_type", "model", "tenant_id"}),
 		generationTokens: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "new_api_generation_output_tokens_total", Help: "Output tokens reported by adaptors, including local usage estimates. Use rate for aggregate output throughput; provider retries are separate, site requests count once.",
-		}, []string{"scope", "channel_id", "channel_type", "outcome"}),
+		}, []string{"scope", "channel_id", "channel_type", "model", "tenant_id", "outcome"}),
 		generationSamples: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "new_api_generation_samples_total", Help: "Generation speed sample eligibility: measured, non_stream, failed, no_content, no_usage, or insufficient_content_timing.",
-		}, []string{"scope", "channel_id", "channel_type", "reason"}),
+		}, []string{"scope", "channel_id", "channel_type", "model", "tenant_id", "reason"}),
+		generationInput: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "new_api_generation_input_tokens_total", Help: "Total input tokens from valid adaptor usage not explicitly marked as estimated, including cache reads and cache creation. Anthropic exclusive input is normalized; not billing quantities.",
+		}, []string{"scope", "channel_id", "channel_type", "model", "tenant_id"}),
+		generationCachedInput: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "new_api_generation_cached_input_tokens_total", Help: "Cache-read input tokens within generation_input_tokens_total. Divide summed rates to obtain token-weighted prompt cache hit ratio; cache creation is not a hit.",
+		}, []string{"scope", "channel_id", "channel_type", "model", "tenant_id"}),
+		generationCacheUsage: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "new_api_generation_cache_usage_requests_total", Help: "Prompt cache usage sample quality: reported, estimated, missing, or invalid. Only reported samples contribute input and cached input tokens; omitted cache fields in reported usage count as zero.",
+		}, []string{"scope", "channel_id", "channel_type", "model", "tenant_id", "source"}),
 		httpRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "new_api_http_requests_total", Help: "Completed HTTP requests by route template, method and status code.",
 		}, []string{"route", "method", "status"}),
@@ -135,13 +164,15 @@ func New() *Metrics {
 			Name: "new_api_upstream_connections_acquired_total", Help: "Upstream HTTP connection acquisitions by reuse status, including transparent transport retries.",
 		}, []string{"reused"}),
 	}
+	m.dimensionCapacity.Set(float64(limit))
 	m.registry.MustRegister(
+		m.dimensionOverflow, m.dimensionCount, m.dimensionCapacity,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 		m.httpRequests, m.httpDuration, m.httpInFlight, m.relayRequests, m.relayTTFT,
 		m.relayRetries, m.streamEnds, m.upstreamRequests, m.upstreamDuration, m.upstreamInFlight,
 		m.connectionAcquire, m.connections,
 		m.tokenizerDuration, m.tokenizerBytes, m.tokenizerTokens, m.tokenizerInFlight,
-		m.generationRequests, m.generationTTFT, m.generationTPOT, m.generationTPS, m.generationTokens, m.generationSamples,
+		m.generationRequests, m.generationTTFT, m.generationTPOT, m.generationTPS, m.generationTokens, m.generationSamples, m.generationInput, m.generationCachedInput, m.generationCacheUsage,
 	)
 	return m
 }

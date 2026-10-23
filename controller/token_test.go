@@ -2,10 +2,12 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,9 +19,11 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/gatewaylimit"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
@@ -891,4 +895,188 @@ func verifyAPITokenAudit(t *testing.T) {
 		require.NoError(t, model.DB.Model(&model.Token{}).Where("name = ?", "audit-down").Count(&count).Error)
 		assert.EqualValues(t, 1, count)
 	})
+}
+
+// The layered limiter stores its policy in existing options, preserving deployed
+// schemas and token credentials across fresh and already populated databases.
+func TestGatewayLimitConfigurationMatrix(t *testing.T) {
+	for _, kind := range []string{"sqlite", "mysql", "postgres"} {
+		t.Run(kind, func(t *testing.T) {
+			dsn := ""
+			if kind == "mysql" {
+				dsn = os.Getenv("TEST_MYSQL_DSN")
+			}
+			if kind == "postgres" {
+				dsn = os.Getenv("TEST_POSTGRES_DSN")
+			}
+			if kind != "sqlite" && dsn == "" {
+				t.Skip("external database not configured")
+			}
+			db, _ := newAuditTestDatabase(t, kind, dsn)
+			beforeDB, beforeLog, beforeRedis := model.DB, model.LOG_DB, common.RedisEnabled
+			mainKind, logKind := common.MainDatabaseType(), common.LogDatabaseType()
+			t.Cleanup(func() {
+				model.DB = beforeDB
+				model.LOG_DB = beforeLog
+				common.RedisEnabled = beforeRedis
+				common.SetDatabaseTypes(mainKind, logKind)
+				gatewaylimit.Initialize()
+			})
+			model.DB = db
+			model.LOG_DB = db
+			common.RedisEnabled = false
+			databaseKind := common.DatabaseTypeSQLite
+			if kind == "mysql" {
+				databaseKind = common.DatabaseTypeMySQL
+			}
+			if kind == "postgres" {
+				databaseKind = common.DatabaseTypePostgreSQL
+			}
+			common.SetDatabaseTypes(databaseKind, databaseKind)
+			require.NoError(t, db.AutoMigrate(&model.Option{}, &model.User{}, &model.Token{}, &model.Channel{}))
+			require.NoError(t, db.Create(&model.Option{Key: "ExistingOption", Value: "preserved"}).Error)
+			user := model.User{Username: "limit-owner"}
+			require.NoError(t, db.Create(&user).Error)
+			token := model.Token{UserId: user.Id, Name: "limit-key", Key: "secret-must-not-appear"}
+			require.NoError(t, db.Create(&token).Error)
+			channel := model.Channel{Name: "limit-supplier", Key: "upstream-secret"}
+			require.NoError(t, db.Create(&channel).Error)
+			model.InitOptionMap()
+			config := gatewaylimit.Config{Rules: []gatewaylimit.Rule{
+				{ID: "user-limit", Name: "User", Scope: "user", SubjectID: user.Id, RPM: 20, Enabled: true},
+				{ID: "key-limit", Name: "Key", Scope: "api_key", SubjectID: token.Id, TPM: 200, Enabled: true},
+				{ID: "model-limit", Name: "Model", Scope: "user_model", SubjectID: user.Id, Model: "requested-model", Concurrent: 2, Enabled: true},
+				{ID: "provider-limit", Name: "Supplier", Scope: "provider", ChannelIDs: []int{channel.Id}, RPM: 30, Enabled: true},
+			}}
+			require.NoError(t, model.SaveGatewayLimits(config))
+			require.EqualValues(t, 1, gatewaylimit.Current().Config.Revision)
+			require.ErrorIs(t, model.SaveGatewayLimits(config), model.ErrGatewayLimitConflict)
+			// Simulate repeated startup over an existing released options schema.
+			for range 2 {
+				require.NoError(t, db.AutoMigrate(&model.Option{}))
+				model.InitOptionMap()
+				assert.Len(t, gatewaylimit.Current().RequestRules(user.Id, token.Id, "requested-model"), 3)
+			}
+			config = gatewaylimit.Current().Config
+			config.Rules = append([]gatewaylimit.Rule(nil), config.Rules...)
+			config.Rules[0].SubjectID = user.Id + 100
+			require.ErrorIs(t, model.SaveGatewayLimits(config), model.ErrGatewayLimitInvalid)
+			config = gatewaylimit.Current().Config
+			config.Rules = append([]gatewaylimit.Rule(nil), config.Rules...)
+			config.Rules[0].RPM = 40
+			require.NoError(t, model.SaveGatewayLimits(config))
+			assert.EqualValues(t, 2, gatewaylimit.Current().Config.Revision)
+			assert.EqualValues(t, 40, gatewaylimit.Current().RequestRules(user.Id, token.Id, "requested-model")[0].RPM)
+			router := gin.New()
+			router.GET("/targets", GetGatewayLimitTargets)
+			for _, targetKind := range []string{"user", "api_key", "provider"} {
+				recorder := httptest.NewRecorder()
+				router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/targets?kind="+targetKind+"&search=limit", nil))
+				assert.Equal(t, http.StatusOK, recorder.Code)
+				assert.Contains(t, recorder.Body.String(), "limit-")
+				assert.NotContains(t, recorder.Body.String(), "secret")
+				assert.NotContains(t, recorder.Body.String(), `"key":`)
+			}
+			var option model.Option
+			require.NoError(t, db.Where(&model.Option{Key: "ExistingOption"}).First(&option).Error)
+			assert.Equal(t, "preserved", option.Value)
+			var stored model.Token
+			require.NoError(t, db.First(&stored, token.Id).Error)
+			assert.Equal(t, token.Key, stored.Key)
+			versionSQL := "SELECT version()"
+			if kind == "sqlite" {
+				versionSQL = "SELECT sqlite_version()"
+			}
+			var version string
+			require.NoError(t, db.Raw(versionSQL).Scan(&version).Error)
+			t.Logf("%s version %s: policy persistence, startup x2, CAS, immutable targets and credential redaction passed", kind, version)
+		})
+	}
+}
+
+func TestGatewayLimitManagementRequiresRoot(t *testing.T) {
+	admin, pat := setupAccessTokenAudit(t)
+	rootToken := "gateway-root-test-token"
+	root := model.User{Username: "gateway-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled, AuthVersion: 1, AccessToken: &rootToken, AffCode: "gateway-root"}
+	require.NoError(t, model.DB.Create(&root).Error)
+	router := gin.New()
+	router.GET("/limits", middleware.RootAuth(), GetGatewayLimits)
+	response := auditRequest(router, http.MethodGet, "/limits", pat)
+	assert.Equal(t, http.StatusForbidden, response.Code)
+	request := httptest.NewRecorder()
+	router.ServeHTTP(request, httptest.NewRequest(http.MethodGet, "/limits", nil))
+	assert.Equal(t, http.StatusUnauthorized, request.Code)
+	response = auditRequest(router, http.MethodGet, "/limits", rootToken)
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.NotContains(t, response.Body.String(), rootToken)
+	require.NoError(t, model.DB.Model(admin).Update("status", common.UserStatusDisabled).Error)
+	response = auditRequest(router, http.MethodGet, "/limits", pat)
+	assert.NotEqual(t, http.StatusOK, response.Code)
+}
+
+func TestGatewayLimitsOnResponsesHTTPAndWebSocket(t *testing.T) {
+	for _, transport := range []string{"http", "websocket"} {
+		t.Run(transport, func(t *testing.T) {
+			completed := `{"type":"response.completed","response":{"id":"response-limit","object":"response","model":"gpt-4o","status":"completed","output":[],"usage":{"input_tokens":7,"output_tokens":3,"total_tokens":10}}}`
+			fixture := newResponsesWSBillingTest(t, `tier("request", fixed(0.001))`, func(ws *websocket.Conn, _ *http.Request) {
+				for {
+					if _, _, err := ws.ReadMessage(); err != nil {
+						return
+					}
+					if err := ws.WriteMessage(websocket.TextMessage, []byte(completed)); err != nil {
+						return
+					}
+				}
+			}, completed)
+			policy, err := gatewaylimit.Compile(gatewaylimit.Config{Revision: 1, Rules: []gatewaylimit.Rule{
+				{ID: "relay-user", Name: "User", Scope: "user", SubjectID: fixture.user.Id, RPM: 100, TPM: 1000, Concurrent: 2, Enabled: true},
+				{ID: "relay-key", Name: "Key", Scope: "api_key", SubjectID: fixture.token.Id, RPM: 100, TPM: 1000, Concurrent: 2, Enabled: true},
+				{ID: "relay-provider", Name: "Provider", Scope: "provider", ChannelIDs: []int{fixture.channel.Id}, RPM: 1, TPM: 1000, Concurrent: 1, Enabled: true},
+			}})
+			require.NoError(t, err)
+			gatewaylimit.Initialize()
+			gatewaylimit.Publish(policy)
+			t.Cleanup(gatewaylimit.Initialize)
+			for attempt := range 2 {
+				if transport == "http" {
+					request, err := http.NewRequest(http.MethodPost, fixture.gatewayURL+"/v1/responses", strings.NewReader(`{"model":"ws-billing","input":"hello","stream":true}`))
+					require.NoError(t, err)
+					request.Header.Set("Authorization", "Bearer sk-"+fixture.token.Key)
+					request.Header.Set("Content-Type", "application/json")
+					response, err := (&http.Client{Timeout: 3 * time.Second}).Do(request)
+					require.NoError(t, err)
+					_, err = io.Copy(io.Discard, response.Body)
+					require.NoError(t, err)
+					require.NoError(t, response.Body.Close())
+					<-fixture.httpDone
+					if attempt == 0 {
+						assert.Equal(t, http.StatusOK, response.StatusCode)
+					} else {
+						assert.Equal(t, http.StatusTooManyRequests, response.StatusCode)
+						assert.NotEmpty(t, response.Header.Get("Retry-After"))
+					}
+				} else {
+					require.NoError(t, fixture.client.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.create","model":"ws-billing","input":"hello"}`)))
+					event := readResponsesWSTestEvent(t, fixture.client)
+					if attempt == 0 {
+						assert.Equal(t, "response.completed", event["type"])
+					} else {
+						assert.Equal(t, "error", event["type"])
+						assert.Contains(t, fmt.Sprint(event), "gateway_rate_limit")
+					}
+				}
+			}
+			fixture.closeAndWait(t)
+			usage, err := gatewaylimit.Default.Inspect(context.Background(), policy.Config.Rules)
+			require.NoError(t, err)
+			assert.Zero(t, usage[0].Concurrent)
+			assert.Zero(t, usage[1].Concurrent)
+			assert.Zero(t, usage[2].Concurrent)
+			assert.InDelta(t, 10, usage[0].TPM, 1)
+			assert.InDelta(t, 10, usage[2].TPM, 1)
+			var channel model.Channel
+			require.NoError(t, model.DB.First(&channel, fixture.channel.Id).Error)
+			assert.Equal(t, common.ChannelStatusEnabled, channel.Status, "a local capacity rejection must not disable the supplier")
+		})
+	}
 }

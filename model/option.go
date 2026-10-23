@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"maps"
 	"strconv"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/gatewaylimit"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
@@ -31,6 +33,7 @@ func AllOption() ([]*Option, error) {
 }
 
 func InitOptionMap() {
+	gatewaylimit.Initialize()
 	common.OptionMapRWMutex.Lock()
 	common.OptionMap = make(map[string]string)
 
@@ -204,6 +207,8 @@ func InitOptionMap() {
 }
 
 func loadOptionsFromDatabase() {
+	gatewayLimitMutex.Lock()
+	defer gatewayLimitMutex.Unlock()
 	requestPolicyOptionMutex.Lock()
 	defer requestPolicyOptionMutex.Unlock()
 	defer func() {
@@ -253,6 +258,14 @@ func validateOptionValue(key string, value string) error {
 }
 
 func UpdateOption(key string, value string) error {
+	if key == gatewaylimit.OptionKey {
+		var config gatewaylimit.Config
+		if err := common.UnmarshalJsonStr(value, &config); err != nil {
+			return err
+		}
+		return SaveGatewayLimits(config)
+	}
+
 	if IsRequestPolicyOption(key) {
 		return UpdateRequestPolicyOptions(map[string]string{key: value})
 	}
@@ -287,6 +300,13 @@ func UpdateOption(key string, value string) error {
 // is touched — safe for callers that must commit a set of related options
 // atomically (e.g. payment gateway binding).
 func UpdateOptionsBulk(values map[string]string) error {
+	if value, ok := values[gatewaylimit.OptionKey]; ok {
+		if len(values) != 1 {
+			return fmt.Errorf("save rate limit rules separately")
+		}
+		return UpdateOption(gatewaylimit.OptionKey, value)
+	}
+
 	if len(values) == 0 {
 		return nil
 	}
@@ -358,6 +378,9 @@ func updateOptionMap(key string, value string) (err error) {
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
 	common.OptionMap[key] = value
+	if key == gatewaylimit.OptionKey {
+		return applyGatewayLimits(value)
+	}
 
 	// 检查是否是模型配置 - 使用更规范的方式处理
 	if handleConfigUpdate(key, value) {

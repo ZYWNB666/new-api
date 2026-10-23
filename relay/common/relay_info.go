@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
+	"github.com/QuantumNous/new-api/pkg/gatewaylimit"
 	"github.com/QuantumNous/new-api/pkg/metrics"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -83,16 +85,19 @@ type TokenCountMeta struct {
 }
 
 type RelayInfo struct {
-	TokenId           int
-	TokenKey          string
-	TokenGroup        string
-	UserId            int
-	UsingGroup        string // 使用的分组，当auto跨分组重试时，会变动
-	UserGroup         string // 用户所在分组
-	TokenUnlimited    bool
-	StartTime         time.Time
-	FirstResponseTime time.Time
-	isFirstResponse   bool
+	GatewayTokenEstimate int64
+	GatewayRequestLimit  *gatewaylimit.Lease
+	GatewayProviderLimit *gatewaylimit.Lease
+	TokenId              int
+	TokenKey             string
+	TokenGroup           string
+	UserId               int
+	UsingGroup           string // 使用的分组，当auto跨分组重试时，会变动
+	UserGroup            string // 用户所在分组
+	TokenUnlimited       bool
+	StartTime            time.Time
+	FirstResponseTime    time.Time
+	isFirstResponse      bool
 	//SendLastReasoningResponse bool
 	IsStream               bool
 	IsGeminiBatchEmbedding bool
@@ -975,21 +980,65 @@ func (info *RelayInfo) SetFirstResponseTime() {
 	}
 }
 
+// InitGenerationMetrics initializes site metrics before local quota or capacity checks.
+func (info *RelayInfo) InitGenerationMetrics(c *gin.Context) {
+	monitor := metrics.Current()
+	if monitor == nil || info.GenerationMetrics != nil {
+		return
+	}
+	started := info.StartTime
+	if value, ok := c.Get(metrics.GenerationStartContextKey); ok {
+		if requestStarted, ok := value.(time.Time); ok {
+			started = requestStarted
+		}
+	}
+	info.GenerationMetrics = monitor.NewGenerationForTenant(started, info.OriginModelName, info.UserId, info.IsStream)
+	c.Set(metrics.GenerationContextKey, info.GenerationMetrics)
+}
+
+// ReportPromptCacheUsage observes usage independently of pricing. OpenAI and
+// Gemini input includes cache reads; Anthropic native input excludes reads/writes.
+func (info *RelayInfo) ReportPromptCacheUsage(usage *dto.Usage) {
+	if info.GenerationMetrics == nil {
+		return
+	}
+	if usage == nil {
+		info.GenerationMetrics.SetPromptCacheUsage(0, 0, "missing")
+		return
+	}
+	if usage.BillingUsage != nil {
+		if usage.BillingUsage.Estimated {
+			info.GenerationMetrics.SetPromptCacheUsage(0, 0, "estimated")
+			return
+		}
+		if canonical, ok := usage.BillingUsage.CanonicalUsage(); ok {
+			usage = canonical
+		}
+	}
+	input := int64(usage.PromptTokens)
+	cached := int64(usage.PromptTokensDetails.CachedTokens)
+	anthropic := usage.UsageSemantic == dto.BillingUsageSemanticAnthropic ||
+		(usage.UsageSemantic == "" && info.GetFinalRequestRelayFormat() == types.RelayFormatClaude)
+	// OpenRouter's OpenAI usage already includes cache tokens in prompt_tokens.
+	if anthropic && (info.ChannelMeta == nil || info.ChannelType != constant.ChannelTypeOpenRouter || usage.UsageSource == dto.BillingUsageSourceClaudeMessages) {
+		creation := max(int64(usage.PromptTokensDetails.CachedCreationTokens),
+			int64(usage.ClaudeCacheCreation5mTokens)+int64(usage.ClaudeCacheCreation1hTokens))
+		for _, count := range []int64{cached, creation} {
+			if input < 0 || count < 0 || count > math.MaxInt64-input {
+				input = -1
+				break
+			}
+			input += count
+		}
+	}
+	info.GenerationMetrics.SetPromptCacheUsage(input, cached, "reported")
+}
+
 // BeginProviderMetrics starts one provider invocation after conversion and before I/O.
 func (info *RelayInfo) BeginProviderMetrics(c *gin.Context) *metrics.ProviderAttempt {
-	monitor := metrics.Current()
-	if monitor == nil {
-		return nil
-	}
+	info.InitGenerationMetrics(c)
 	if info.GenerationMetrics == nil {
-		started := info.StartTime
-		if value, ok := c.Get(metrics.GenerationStartContextKey); ok {
-			if requestStarted, ok := value.(time.Time); ok {
-				started = requestStarted
-			}
-		}
-		info.GenerationMetrics = monitor.NewGeneration(started)
-		c.Set(metrics.GenerationContextKey, info.GenerationMetrics)
+		return nil
 	}
 	channelID, channelType := 0, 0
 	if info.ChannelMeta != nil {

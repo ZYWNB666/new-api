@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/gatewaylimit"
 	pluginruntime "github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/pkg/metrics"
 	_ "github.com/QuantumNous/new-api/plugins"
@@ -51,7 +52,7 @@ import (
 
 func GetAdaptor(apiType int) (adaptor channel.Adaptor) {
 	defer func() {
-		if adaptor != nil && metrics.Current() != nil {
+		if adaptor != nil && (metrics.Current() != nil || gatewaylimit.Current().Enabled()) {
 			adaptor = &channel.MeteredAdaptor{Adaptor: adaptor}
 		}
 	}()

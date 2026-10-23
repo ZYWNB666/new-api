@@ -241,6 +241,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 			info = &relaycommon.RelayInfo{OriginModelName: modelName, UsingGroup: common.GetContextKeyString(c, appconstant.ContextKeyUsingGroup), StartTime: started}
 		}
 		if info != nil {
+			info.FinishGatewayLimits()
 			providerAttempt.Finish(info.PerformanceOutputTokens, string(perfmetrics.ClassifyRelayOutcome(c.Request.Context(), info, apiErr)))
 		}
 		perfmetrics.RecordRelayResult(c.Request.Context(), info, apiErr)
@@ -276,6 +277,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 		info = relaycommon.GenRelayInfoResponses(c, &create.Request)
 		info.IsStream = true
 		common.SetContextKey(c, appconstant.ContextKeyIsStream, true)
+		info.InitGenerationMetrics(c)
 		if apiErr = PrepareRequestBilling(c, info); apiErr != nil {
 			return apiErr
 		}
@@ -285,6 +287,10 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 		if apiErr != nil {
 			return apiErr
 		}
+		if limitErr := info.AcquireProviderLimit(c, info.ChannelId); limitErr != nil {
+			return relaycommon.GatewayLimitError(c, limitErr)
+		}
+		info.MarkGatewaySent()
 		providerAttempt = info.BeginProviderMetrics(c)
 		providerAttempt.SetStatus(http.StatusSwitchingProtocols)
 		if err := s.writeTarget(websocket.TextMessage, payload); err != nil {
@@ -293,10 +299,15 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 		}
 	} else {
 		retry := &service.RetryParam{Ctx: c, TokenGroup: common.GetContextKeyString(c, appconstant.ContextKeyUsingGroup), ModelName: modelName, RequestPath: c.Request.URL.Path, Retry: common.GetPointer(0)}
+		capacityProbes := 0
+		var capacityError error
 		for ; retry.GetRetry() <= common.RetryTimes; retry.IncreaseRetry() {
 			var channel *appmodel.Channel
 			channel, apiErr = selectResponsesWSChannel(c, modelName, retry)
 			if apiErr != nil {
+				if capacityError != nil {
+					return relaycommon.GatewayLimitError(c, capacityError)
+				}
 				return apiErr
 			}
 			service.AppendUsedChannel(c, channel.Id)
@@ -304,6 +315,7 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 				info = relaycommon.GenRelayInfoResponses(c, &create.Request)
 				info.IsStream = true
 				common.SetContextKey(c, appconstant.ContextKeyIsStream, true)
+				info.InitGenerationMetrics(c)
 				if apiErr = PrepareRequestBilling(c, info); apiErr != nil {
 					return apiErr
 				}
@@ -323,9 +335,22 @@ func (s *responsesWSSession) runCall(c *gin.Context, state *responsesWSCallState
 			}
 			adaptor := GetAdaptor(info.ApiType)
 			adaptor.Init(info)
+			if limitErr := info.AcquireProviderLimit(c, channel.Id); limitErr != nil {
+				capacityError = limitErr
+				capacityProbes++
+				relaycommon.GatewayProviderError(c)
+				if service.RerouteGatewayLimit(c, retry, limitErr, capacityProbes) {
+					continue
+				}
+				return relaycommon.GatewayLimitError(c, limitErr)
+			}
 			providerAttempt = info.BeginProviderMetrics(c)
 			target, dialErr := relaychannel.DoWssRequest(adaptor, c, info, nil)
 			if dialErr != nil {
+				info.FinishProviderLimit()
+				if limitErr := relaycommon.GatewayProviderError(c); limitErr != nil {
+					return relaycommon.GatewayLimitError(c, limitErr)
+				}
 				providerAttempt.Finish(0, "failure")
 				apiErr = service.NormalizeViolationFeeError(types.NewError(dialErr, types.ErrorCodeDoRequestFailed))
 				service.ResetStatusCode(apiErr, c.GetString("status_code_mapping"))

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -488,7 +489,7 @@ func TestSDKProviderMetricsPreserveNativeStatusAndUsage(t *testing.T) {
 		c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 		info := &relaycommon.RelayInfo{StartTime: time.Now()}
 		info.ChannelMeta = &relaycommon.ChannelMeta{ChannelId: tc.channel, ChannelType: 33}
-		original := &dto.Usage{CompletionTokens: 7}
+		original := &dto.Usage{PromptTokens: 100, CompletionTokens: 7, PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 60}}
 		a := &relaychannel.MeteredAdaptor{Adaptor: &sdkMetricsAdaptor{usage: original, err: tc.err}}
 		resp, err := a.DoRequest(c, info, nil)
 		require.NoError(t, err)
@@ -500,6 +501,7 @@ func TestSDKProviderMetricsPreserveNativeStatusAndUsage(t *testing.T) {
 			apiErr.StatusCode = 503
 		}
 		families := scrapeMetrics(t, m.Handler())
+		assert.Equal(t, float64(60), generationMetric(t, families, "new_api_generation_cached_input_tokens_total", "provider", strconv.Itoa(tc.channel)).GetCounter().GetValue())
 		metric := generationMetric(t, families, "new_api_generation_requests_total", "provider", strconv.Itoa(tc.channel))
 		labels := map[string]string{}
 		for _, label := range metric.Label {
@@ -632,4 +634,176 @@ func TestSDKHTTPRetriesExposeEachNativeStatus(t *testing.T) {
 			assert.Equal(t, "200", label.GetValue())
 		}
 	}
+}
+
+func TestGenerationMetricsSeparateRequestedModelAndTenant(t *testing.T) {
+	m := metrics.New()
+	start := time.Unix(1000, 0)
+	const content = `{"choices":[{"delta":{"content":"hello"}}]}`
+	for _, pair := range []struct {
+		model  string
+		tenant int
+	}{{"client-model-a", 1}, {"client-model-b", 1}, {"client-model-a", 2}} {
+		g := m.NewGenerationForTenant(start, pair.model, pair.tenant, true)
+		a := g.BeginAttempt(7, 1, true, start)
+		a.SetStatus(http.StatusOK)
+		g.ObserveProviderContent(start.Add(time.Second))
+		g.ObserveProviderContent(start.Add(2 * time.Second))
+		g.ObserveSitePayload(content, start.Add(2*time.Second))
+		g.ObserveSitePayload(content, start.Add(3*time.Second))
+		a.Finish(10, "success")
+		g.SetOutcome("success")
+		g.FinishSite(http.StatusOK)
+	}
+	families := scrapeMetrics(t, m.Handler())
+	for _, name := range []string{"new_api_generation_requests_total", "new_api_generation_output_tokens_total", "new_api_generation_time_to_first_token_seconds", "new_api_generation_time_per_output_token_seconds", "new_api_generation_tokens_per_second", "new_api_generation_samples_total"} {
+		require.Contains(t, families, name)
+		require.Len(t, families[name].Metric, 6)
+		seen := map[string]bool{}
+		for _, metric := range families[name].Metric {
+			labels := map[string]string{}
+			for _, label := range metric.Label {
+				labels[label.GetName()] = label.GetValue()
+			}
+			seen[labels["model"]+":"+labels["tenant_id"]+":"+labels["scope"]] = true
+		}
+		assert.Len(t, seen, 6, "model and tenant must remain independent on both sides")
+		assert.True(t, seen["client-model-b:1:site"])
+		assert.True(t, seen["client-model-a:2:provider"])
+	}
+}
+
+func TestGenerationDimensionBudgetPreservesTotals(t *testing.T) {
+	t.Setenv("METRICS_MAX_GENERATION_LABELSETS", "1")
+	m := metrics.New()
+	for _, pair := range []struct {
+		model  string
+		tenant int
+	}{{"first", 1}, {"overflow", 2}, {"another", 3}, {"first", 1}} {
+		g := m.NewGenerationForTenant(time.Unix(1000, 0), pair.model, pair.tenant, false)
+		g.SetOutcome("success")
+		g.FinishSite(http.StatusOK)
+	}
+	families := scrapeMetrics(t, m.Handler())
+	require.Len(t, families["new_api_generation_requests_total"].Metric, 2)
+	totals := map[string]float64{}
+	for _, metric := range families["new_api_generation_requests_total"].Metric {
+		labels := map[string]string{}
+		for _, label := range metric.Label {
+			labels[label.GetName()] = label.GetValue()
+		}
+		totals[labels["model"]+":"+labels["tenant_id"]] = metric.GetCounter().GetValue()
+	}
+	assert.Equal(t, map[string]float64{"first:1": 2, "__other__:__other__": 2}, totals)
+	assert.Equal(t, float64(2), families["new_api_generation_dimension_overflow_total"].Metric[0].GetCounter().GetValue())
+	assert.Equal(t, float64(1), families["new_api_generation_dimension_labelsets"].Metric[0].GetGauge().GetValue())
+}
+
+func TestLocalRejectionRetainsGenerationTenantLabels(t *testing.T) {
+	monitor := metrics.Enable()
+	router := gin.New()
+	router.Use(monitor.Middleware())
+	router.POST("/local-limit", func(c *gin.Context) {
+		info := &relaycommon.RelayInfo{UserId: 4242, OriginModelName: "local-rejection-model", StartTime: time.Now(), IsStream: true}
+		info.ChannelMeta = &relaycommon.ChannelMeta{UpstreamModelName: "private-upstream-model"}
+		info.InitGenerationMetrics(c)
+		failure := types.NewErrorWithStatusCode(errors.New("limited"), types.ErrorCode("gateway_rate_limit"), http.StatusTooManyRequests)
+		perfmetrics.RecordRelayResult(c.Request.Context(), info, failure)
+		c.Status(http.StatusTooManyRequests)
+	})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/local-limit", nil))
+	require.Equal(t, http.StatusTooManyRequests, response.Code)
+	families := scrapeMetrics(t, monitor.Handler())
+	found := false
+	for _, metric := range families["new_api_generation_requests_total"].Metric {
+		labels := map[string]string{}
+		for _, label := range metric.Label {
+			labels[label.GetName()] = label.GetValue()
+		}
+		if labels["model"] != "local-rejection-model" {
+			continue
+		}
+		found = true
+		assert.Equal(t, "4242", labels["tenant_id"])
+		assert.Equal(t, "429", labels["status"])
+		assert.Equal(t, "site", labels["scope"])
+		assert.Equal(t, "ignored", labels["outcome"])
+	}
+	assert.True(t, found, "local rejections before provider I/O must still be attributed to the tenant")
+	assert.NotContains(t, fmt.Sprint(families["new_api_generation_requests_total"]), "private-upstream-model")
+}
+
+func TestPromptCacheUsageNormalizesProviderSemantics(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		usage         *dto.Usage
+		format        types.RelayFormat
+		channel       int
+		input, cached float64
+		source        string
+	}{
+		{name: "openai", usage: &dto.Usage{PromptTokens: 100, PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 60}}, input: 100, cached: 60, source: "reported"},
+		{name: "responses", usage: &dto.Usage{BillingUsage: dto.NewOpenAIResponsesBillingUsage(&dto.Usage{InputTokens: 100, InputTokensDetails: &dto.InputTokenDetails{CachedTokens: 60}})}, input: 100, cached: 60, source: "reported"},
+		{name: "claude snapshot", usage: &dto.Usage{PromptTokens: 999, BillingUsage: dto.NewClaudeMessagesBillingUsage(&dto.ClaudeUsage{InputTokens: 20, CacheReadInputTokens: 60, CacheCreationInputTokens: 20})}, input: 100, cached: 60, source: "reported"},
+		{name: "claude native", usage: &dto.Usage{PromptTokens: 20, PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 60, CachedCreationTokens: 20}}, format: types.RelayFormatClaude, input: 100, cached: 60, source: "reported"},
+		{name: "openrouter inclusive", usage: &dto.Usage{PromptTokens: 100, UsageSemantic: "anthropic", PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 60, CachedCreationTokens: 20}}, channel: constant.ChannelTypeOpenRouter, input: 100, cached: 60, source: "reported"},
+		{name: "gemini", usage: &dto.Usage{BillingUsage: dto.NewGeminiChatBillingUsage(&dto.GeminiUsageMetadata{PromptTokenCount: 100, CachedContentTokenCount: 60})}, input: 100, cached: 60, source: "reported"},
+		{name: "cache miss", usage: &dto.Usage{PromptTokens: 100}, input: 100, source: "reported"},
+		{name: "missing", source: "missing"},
+		{name: "invalid", usage: &dto.Usage{PromptTokens: 10, PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 60}}, source: "invalid"},
+		{name: "negative", usage: &dto.Usage{PromptTokens: -1}, source: "invalid"},
+		{name: "estimated", usage: &dto.Usage{BillingUsage: &dto.BillingUsage{Estimated: true, Source: dto.BillingUsageSourceOAIChat, OpenAIUsage: &dto.Usage{PromptTokens: 100}}}, source: "estimated"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := metrics.New()
+			g := m.NewGenerationForTenant(time.Unix(1000, 0), "requested-model", 42, false)
+			a := g.BeginAttempt(7, 1, false, time.Unix(1000, 0))
+			info := &relaycommon.RelayInfo{GenerationMetrics: g, RelayFormat: tc.format, ChannelMeta: &relaycommon.ChannelMeta{ChannelType: tc.channel}}
+			info.ReportPromptCacheUsage(tc.usage)
+			info.ReportPromptCacheUsage(tc.usage) // Settlement/adaptor notifications must count once.
+			a.Finish(5, "success")
+			a.Finish(5, "success")
+			g.FinishSite(200)
+			g.FinishSite(200)
+			families := scrapeMetrics(t, m.Handler())
+			for _, scope := range []string{"site", "provider"} {
+				channel := "0"
+				if scope == "provider" {
+					channel = "7"
+				}
+				sample := generationMetric(t, families, "new_api_generation_cache_usage_requests_total", scope, channel)
+				assert.Equal(t, float64(1), sample.GetCounter().GetValue())
+				labels := map[string]string{}
+				for _, l := range sample.Label {
+					labels[l.GetName()] = l.GetValue()
+				}
+				assert.Equal(t, tc.source, labels["source"])
+				assert.Equal(t, "42", labels["tenant_id"])
+				assert.Equal(t, "requested-model", labels["model"])
+				if tc.source == "reported" {
+					assert.Equal(t, tc.input, generationMetric(t, families, "new_api_generation_input_tokens_total", scope, channel).GetCounter().GetValue())
+					assert.Equal(t, tc.cached, generationMetric(t, families, "new_api_generation_cached_input_tokens_total", scope, channel).GetCounter().GetValue())
+				} else {
+					assert.NotContains(t, families, "new_api_generation_input_tokens_total")
+				}
+			}
+		})
+	}
+}
+
+func TestPromptCacheRetriesKeepProviderAttemptsAndFinalSiteUsage(t *testing.T) {
+	m := metrics.New()
+	g := m.NewGenerationForTenant(time.Unix(1000, 0), "model", 1, false)
+	a := g.BeginAttempt(7, 1, false, time.Unix(1000, 0))
+	g.SetPromptCacheUsage(100, 80, "reported")
+	a.Finish(1, "failure")
+	b := g.BeginAttempt(8, 1, false, time.Unix(1001, 0))
+	g.SetPromptCacheUsage(200, 20, "reported")
+	b.Finish(1, "success")
+	g.FinishSite(200)
+	families := scrapeMetrics(t, m.Handler())
+	assert.Equal(t, float64(80), generationMetric(t, families, "new_api_generation_cached_input_tokens_total", "provider", "7").GetCounter().GetValue())
+	assert.Equal(t, float64(20), generationMetric(t, families, "new_api_generation_cached_input_tokens_total", "provider", "8").GetCounter().GetValue())
+	assert.Equal(t, float64(20), generationMetric(t, families, "new_api_generation_cached_input_tokens_total", "site", "0").GetCounter().GetValue())
 }

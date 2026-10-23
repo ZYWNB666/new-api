@@ -31,6 +31,8 @@ func TestClassifyRelayOutcome(t *testing.T) {
 		{"wrapped credentials keep their cause", context.Background(), types.NewErrorWithStatusCode(types.InitOpenAIError("invalid_api_key", 400), types.ErrorCodeInvalidRequest, 400), OutcomeFailure},
 		{"upstream context limit returned as 500", context.Background(), types.InitOpenAIError("context_length_exceeded", 500), OutcomeIgnored},
 		{"local rate limit", context.Background(), types.NewErrorWithStatusCode(errors.New("limited"), types.ErrorCodeInvalidRequest, 429), OutcomeIgnored},
+		{"gateway capacity rejection", context.Background(), types.NewErrorWithStatusCode(errors.New("limited"), types.ErrorCode("gateway_rate_limit"), 429), OutcomeIgnored},
+		{"gateway limiter unavailable", context.Background(), types.NewErrorWithStatusCode(errors.New("storage unavailable"), types.ErrorCode("gateway_rate_limit"), 503), OutcomeIgnored},
 		{"upstream rate limit", context.Background(), types.InitOpenAIError("rate_limit_exceeded", 429), OutcomeFailure},
 		{"local quota", context.Background(), types.NewError(errors.New("quota"), types.ErrorCodeInsufficientUserQuota), OutcomeIgnored},
 		{"local violation fee", context.Background(), types.NewError(errors.New("csam"), types.ErrorCodeViolationFeeGrokCSAM), OutcomeIgnored},

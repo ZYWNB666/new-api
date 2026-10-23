@@ -503,6 +503,16 @@ func tasksToDto(tasks []*model.Task, fillUser bool, viewerRole int) []*dto.TaskD
 				item.RootInfo = rootInfo
 			}
 		}
+		// The real upstream model name reveals how a channel is mapped, so only
+		// admins may see it. The model the user requested is their own input and
+		// stays visible to everyone.
+		if viewerRole < common.RoleAdminUser {
+			if props, ok := item.Properties.(*model.Properties); ok && props != nil {
+				redacted := *props
+				redacted.UpstreamModelName = ""
+				item.Properties = &redacted
+			}
+		}
 		result[i] = item
 	}
 	return result

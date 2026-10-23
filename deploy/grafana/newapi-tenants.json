@@ -1,0 +1,1937 @@
+{
+  "uid": "newapi-tenants",
+  "title": "new-api · 租户与模型监控",
+  "description": "按用户账号 ID 和客户端原始模型名查看本站及供应商的 TTFT、TPOT、TPS、输出量、状态码和协议结果。历史无标签数据不混入租户统计。",
+  "tags": [
+    "new-api",
+    "tenant",
+    "model",
+    "prometheus"
+  ],
+  "timezone": "Asia/Shanghai",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "15s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "instance",
+        "label": "实例",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "newapi-prometheus"
+        },
+        "query": {
+          "query": "label_values(up{job=\"new-api\"}, instance)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "definition": "label_values(up{job=\"new-api\"}, instance)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "sort": 1
+      },
+      {
+        "name": "scope",
+        "label": "范围",
+        "type": "custom",
+        "query": "本站 : site,供应商 : provider",
+        "multi": false,
+        "includeAll": false,
+        "current": {
+          "selected": true,
+          "text": "本站",
+          "value": "site"
+        },
+        "options": [
+          {
+            "text": "本站",
+            "value": "site",
+            "selected": true
+          },
+          {
+            "text": "供应商",
+            "value": "provider",
+            "selected": false
+          }
+        ]
+      },
+      {
+        "name": "tenant",
+        "label": "租户 ID",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "newapi-prometheus"
+        },
+        "query": {
+          "query": "label_values(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",tenant_id!=\"\"}, tenant_id)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "definition": "label_values(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",tenant_id!=\"\"}, tenant_id)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "sort": 3
+      },
+      {
+        "name": "model",
+        "label": "模型",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "newapi-prometheus"
+        },
+        "query": {
+          "query": "label_values(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",tenant_id=~\"${tenant}\",model!=\"\"}, model)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "definition": "label_values(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",tenant_id=~\"${tenant}\",model!=\"\"}, model)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "sort": 1
+      },
+      {
+        "name": "channel",
+        "label": "供应商渠道",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "newapi-prometheus"
+        },
+        "query": {
+          "query": "label_values(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",scope=\"provider\",tenant_id=~\"${tenant}\",model=~\"${model}\"}, channel_id)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "definition": "label_values(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",scope=\"provider\",tenant_id=~\"${tenant}\",model=~\"${model}\"}, channel_id)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "sort": 3
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "统计口径",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "**租户 = 用户账号 ID（tenant_id）**；**模型 = 客户端原始请求模型名**，不受供应商模型映射影响。\n\n默认看本站，每个客户端请求计一次；切换供应商范围后，每次适配器尝试分别计数。供应商面板始终按供应商尝试统计。状态码与协议 outcome 分开显示，流中断可能仍为 HTTP 200。TTFT/TPOT/TPS 仅展示有有效计时的样本；输出 token 可能包含适配器估算，不能用于账单对账。新标签只覆盖本次升级后的新数据。\n\n超过进程标签组合预算时，新增模型/租户会归入 `__other__`，总请求量仍保留；可在底部查看聚合情况。"
+      }
+    },
+    {
+      "id": 2,
+      "type": "row",
+      "title": "租户总览 · 跟随范围、租户和模型筛选",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "生成请求 / 秒",
+      "description": "完成请求速率；不包含尚未完成的长流。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum(rate(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "暂无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "所选时间请求数",
+      "description": "由计数器增量估算所选时间窗口内完成请求数。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum(increase(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__range]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "暂无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "协议成功率",
+      "description": "success / 全部已完成请求；ignored 业务拒绝单独展示，空流量不补成 100%。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "100 * sum(rate(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\",outcome=\"success\"}[$__rate_interval])) / sum(rate(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "noValue": "暂无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "输出吞吐量",
+      "description": "并发聚合输出吞吐量，与单请求解码 TPS 不同。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum(rate(new_api_generation_output_tokens_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: token/s",
+          "noValue": "暂无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "TTFT · P95",
+      "description": "首个有效生成内容延迟。本站计成功转发，供应商计收到内容。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "histogram_quantile(0.95,sum by(le)(rate(new_api_generation_time_to_first_token_seconds_bucket{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval])))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "暂无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "TPOT · P95",
+      "description": "每请求平均输出 token 间隔的 P95，非逐 token 时间戳。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 9,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "histogram_quantile(0.95,sum by(le)(rate(new_api_generation_time_per_output_token_seconds_bucket{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval]))) * 1000",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "noValue": "暂无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "单请求解码 TPS · 平均",
+      "description": "有效流式请求解码速度的算术平均，非全站输出总量速率。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum(rate(new_api_generation_tokens_per_second_sum{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval])) / sum(rate(new_api_generation_tokens_per_second_count{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: token/s",
+          "noValue": "暂无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "失败 / 秒",
+      "description": "按协议 outcome 统计失败；本站业务限流通常归 ignored。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 9,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum(rate(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\",outcome=\"failure\"}[$__rate_interval]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "暂无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "租户与模型 · 流量和输出",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "按租户请求 / 秒",
+      "description": "账号 ID 为租户标识，不暴露用户名或 API Key。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum by(tenant_id)(rate(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval]))",
+          "legendFormat": "租户 {{tenant_id}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "暂无样本",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "按模型请求 / 秒",
+      "description": "客户端请求模型名。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 14,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum by(model)(rate(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval]))",
+          "legendFormat": "{{model}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "暂无样本",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "按租户输出吞吐量",
+      "description": "按租户聚合的输出 token/s。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 14,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum by(tenant_id)(rate(new_api_generation_output_tokens_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval]))",
+          "legendFormat": "租户 {{tenant_id}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: token/s",
+          "noValue": "暂无样本",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "bargauge",
+      "title": "Top 10 租户 · 时间窗口请求数",
+      "description": "所选时间窗口的请求增量排名。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "topk(10,sum by(tenant_id)(increase(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__range])))",
+          "legendFormat": "租户 {{tenant_id}}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "暂无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true
+      }
+    },
+    {
+      "id": 16,
+      "type": "bargauge",
+      "title": "Top 10 模型 · 时间窗口请求数",
+      "description": "所选租户和范围内的模型请求增量排名。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "topk(10,sum by(model)(increase(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__range])))",
+          "legendFormat": "{{model}}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "暂无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true
+      }
+    },
+    {
+      "id": 17,
+      "type": "row",
+      "title": "租户体验 · 计时与状态",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "租户 TTFT · P95",
+      "description": "无有效首内容样本时保持无数据。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "histogram_quantile(0.95,sum by(le, tenant_id)(rate(new_api_generation_time_to_first_token_seconds_bucket{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval])))",
+          "legendFormat": "租户 {{tenant_id}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "暂无样本",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "租户 TPOT · P95",
+      "description": "成功流式请求且有有效时间及 usage 才计入。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 30,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "histogram_quantile(0.95,sum by(le, tenant_id)(rate(new_api_generation_time_per_output_token_seconds_bucket{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval]))) * 1000",
+          "legendFormat": "租户 {{tenant_id}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "noValue": "暂无样本",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "租户解码 TPS · 平均",
+      "description": "每租户的单请求解码速度平均值。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 30,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum by(tenant_id)(rate(new_api_generation_tokens_per_second_sum{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval])) / sum by(tenant_id)(rate(new_api_generation_tokens_per_second_count{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval]))",
+          "legendFormat": "租户 {{tenant_id}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: token/s",
+          "noValue": "暂无样本",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "HTTP 状态码 / 秒",
+      "description": "scope=site 为返回客户端的状态；scope=provider 为适配器状态；none 表示没有响应状态。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum by(tenant_id,status)(rate(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval]))",
+          "legendFormat": "租户 {{tenant_id}} · {{status}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "暂无样本",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "协议结果 / 秒",
+      "description": "success、failure、ignored 分开统计。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 38,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum by(tenant_id,outcome)(rate(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval]))",
+          "legendFormat": "租户 {{tenant_id}} · {{outcome}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "暂无样本",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "速度样本资格 / 秒",
+      "description": "measured 才有 TPOT/TPS；其他 reason 解释无速度样本的原因。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 38,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum by(reason)(rate(new_api_generation_samples_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval]))",
+          "legendFormat": "{{reason}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "暂无样本",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 24,
+      "type": "row",
+      "title": "供应商 · 始终按供应商范围统计",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "供应商 TTFT · 渠道 P95",
+      "description": "按所选租户、模型、渠道过滤，始终统计 provider。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "histogram_quantile(0.95,sum by(le, channel_id)(rate(new_api_generation_time_to_first_token_seconds_bucket{job=\"new-api\",instance=~\"${instance}\",scope=\"provider\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\",channel_id=~\"${channel}\"}[$__rate_interval])))",
+          "legendFormat": "渠道 {{channel_id}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "暂无样本",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "供应商解码 TPS · 渠道平均",
+      "description": "供应商有效流式调用的请求平均 TPS。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 47,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum by(channel_id)(rate(new_api_generation_tokens_per_second_sum{job=\"new-api\",instance=~\"${instance}\",scope=\"provider\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\",channel_id=~\"${channel}\"}[$__rate_interval])) / sum by(channel_id)(rate(new_api_generation_tokens_per_second_count{job=\"new-api\",instance=~\"${instance}\",scope=\"provider\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\",channel_id=~\"${channel}\"}[$__rate_interval]))",
+          "legendFormat": "渠道 {{channel_id}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: token/s",
+          "noValue": "暂无样本",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 27,
+      "type": "timeseries",
+      "title": "供应商状态码 / 秒",
+      "description": "每个适配器调用独立统计；SDK 内部重试可能仍合并。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 47,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum by(channel_id,status)(rate(new_api_generation_requests_total{job=\"new-api\",instance=~\"${instance}\",scope=\"provider\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\",channel_id=~\"${channel}\"}[$__rate_interval]))",
+          "legendFormat": "渠道 {{channel_id}} · {{status}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "暂无样本",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 28,
+      "type": "row",
+      "title": "Prompt cache · 输入 token 缓存命中",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 55,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 29,
+      "type": "stat",
+      "title": "输入 token 缓存命中率",
+      "description": "按 token 加权：缓存读取 token / 总输入 token。缓存写入计入输入分母，不计命中。OpenAI/Gemini 输入已含缓存；Claude 原生输入补入缓存读取与写入。明确标记为估算、缺失或非法的 usage 不参与；上游未报告缓存字段按 0 处理，不能据此判断模型是否支持缓存。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum(rate(new_api_generation_cached_input_tokens_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval])) / (sum(rate(new_api_generation_input_tokens_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval])) > 0)",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "暂无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 30,
+      "type": "stat",
+      "title": "缓存读取 token / 秒",
+      "description": "供应商实际报告的缓存读取量；不是网关本地或 Redis 缓存。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 56,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum(rate(new_api_generation_cached_input_tokens_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: token/s",
+          "noValue": "暂无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 31,
+      "type": "stat",
+      "title": "有效 usage 样本占比",
+      "description": "reported / 全部样本；estimated、missing、invalid 不计入命中率。missing 也包含未访问供应商的本地拒绝。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 56,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum(rate(new_api_generation_cache_usage_requests_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\",source=\"reported\"}[$__rate_interval])) / (sum(rate(new_api_generation_cache_usage_requests_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval])) > 0)",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "暂无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "模型缓存命中率",
+      "description": "按输入 token 加权；无有效输入时保持无数据。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 60,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum by(model)(rate(new_api_generation_cached_input_tokens_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval])) / (sum by(model)(rate(new_api_generation_input_tokens_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval])) > 0)",
+          "legendFormat": "{{model}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "暂无样本",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 33,
+      "type": "timeseries",
+      "title": "租户缓存命中率",
+      "description": "按用户 ID 聚合的输入 token 缓存命中率。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 60,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum by(tenant_id)(rate(new_api_generation_cached_input_tokens_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval])) / (sum by(tenant_id)(rate(new_api_generation_input_tokens_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval])) > 0)",
+          "legendFormat": "租户 {{tenant_id}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "暂无样本",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 34,
+      "type": "timeseries",
+      "title": "供应商渠道缓存命中率",
+      "description": "始终按供应商尝试统计，并应用租户、模型及渠道筛选。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 60,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum by(channel_id)(rate(new_api_generation_cached_input_tokens_total{job=\"new-api\",instance=~\"${instance}\",scope=\"provider\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\",channel_id=~\"${channel}\"}[$__rate_interval])) / (sum by(channel_id)(rate(new_api_generation_input_tokens_total{job=\"new-api\",instance=~\"${instance}\",scope=\"provider\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\",channel_id=~\"${channel}\"}[$__rate_interval])) > 0)",
+          "legendFormat": "渠道 {{channel_id}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "暂无样本",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 35,
+      "type": "timeseries",
+      "title": "缓存 usage 样本质量 / 秒",
+      "description": "reported 才计入 token 分子分母；其他来源单独展示。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 68,
+        "w": 24,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum by(source)(rate(new_api_generation_cache_usage_requests_total{job=\"new-api\",instance=~\"${instance}\",scope=\"$scope\",tenant_id=~\"${tenant}\",tenant_id!=\"\",model=~\"${model}\",model!=\"\"}[$__rate_interval]))",
+          "legendFormat": "{{source}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "暂无样本",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 36,
+      "type": "row",
+      "title": "标签预算 · 全局保护，不受租户或模型筛选",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 74,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 37,
+      "type": "stat",
+      "title": "已使用标签组合",
+      "description": "进程内保留的模型、租户和渠道标签组合数量。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 75,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum(new_api_generation_dimension_labelsets{job=\"new-api\",instance=~\"${instance}\"})",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "暂无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 38,
+      "type": "stat",
+      "title": "标签组合预算",
+      "description": "每实例默认 2000；环境变量 METRICS_MAX_GENERATION_LABELSETS 可调整。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 75,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum(new_api_generation_dimension_labelset_limit{job=\"new-api\",instance=~\"${instance}\"})",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "暂无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 39,
+      "type": "stat",
+      "title": "溢出聚合 / 秒",
+      "description": "新增组合超预算时模型和租户归入 __other__；原始总量仍计数，不包含请求内容或凭据。",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "newapi-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 75,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "newapi-prometheus"
+          },
+          "expr": "sum(rate(new_api_generation_dimension_overflow_total{job=\"new-api\",instance=~\"${instance}\"}[$__rate_interval]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "noValue": "暂无样本"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "area",
+        "textMode": "auto"
+      }
+    }
+  ],
+  "links": [
+    {
+      "title": "运行与供应商总览",
+      "type": "link",
+      "url": "/d/newapi-overview",
+      "targetBlank": false
+    },
+    {
+      "title": "网关限流管理",
+      "type": "link",
+      "url": "https://netwebs.top/rate-limits",
+      "targetBlank": true
+    }
+  ]
+}

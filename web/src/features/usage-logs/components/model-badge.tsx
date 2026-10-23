@@ -38,7 +38,7 @@ import { DetailRow } from './dialogs/log-detail-layout'
 interface ModelBadgeProps {
   modelName: string
   actualModel?: string
-  responseModel?: LogOtherData['response_model']
+  responseModel?: NonNullable<LogOtherData['admin_info']>['response_model']
   className?: string
   wrapText?: boolean
   onInspect?: () => void
@@ -205,7 +205,9 @@ export function ModelBadge(props: ModelBadgeProps) {
 }
 
 export function ResponseModelDetails(props: {
-  observation: NonNullable<LogOtherData['response_model']>
+  observation: NonNullable<
+    NonNullable<LogOtherData['admin_info']>['response_model']
+  >
 }) {
   const { t } = useTranslation()
   const mismatch = isResponseModelMismatch(props.observation)

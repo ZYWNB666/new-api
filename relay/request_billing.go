@@ -8,6 +8,7 @@ import (
 
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/pkg/gatewaylimit"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -22,9 +23,15 @@ import (
 // provide the current request body through BodyStorage or BillingRequestInput;
 // channel retries retain the resulting billing session and pricing snapshot.
 func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
+	rules := gatewaylimit.Current().RequestRules(info.UserId, info.TokenId, info.OriginModelName)
+	needLimitTokens := false
+	for _, rule := range rules {
+		needLimitTokens = needLimitTokens || rule.TPM > 0
+	}
+	needLimitTokens = needLimitTokens || gatewaylimit.Current().ProviderTPM
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
 	meta := &types.TokenCountMeta{TokenType: types.TokenTypeTokenizer}
-	if info.Request != nil && (needSensitiveCheck || constant.CountToken) {
+	if info.Request != nil && (needSensitiveCheck || constant.CountToken || needLimitTokens) {
 		meta = info.Request.GetTokenCountMeta()
 	} else {
 		// Avoid building CombineText when only the pricing quantities are needed.
@@ -54,6 +61,17 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo) *types.N
 		return types.NewError(err, types.ErrorCodeCountTokenFailed)
 	}
 	info.SetEstimatePromptTokens(tokens)
+	limitTokens := tokens
+	if needLimitTokens && !constant.CountToken {
+		limitTokens, err = service.CountRequestToken(c, meta, info)
+		if err != nil {
+			return types.NewError(err, types.ErrorCodeCountTokenFailed)
+		}
+	}
+	info.GatewayTokenEstimate = int64(limitTokens)
+	if apiErr := info.AcquireRequestLimit(c, int64(limitTokens)); apiErr != nil {
+		return apiErr
+	}
 
 	priceData, err := helper.ModelPriceHelper(c, info, tokens, meta)
 	if err != nil {

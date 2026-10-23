@@ -406,6 +406,10 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		}
 		dialer.Proxy = http.ProxyURL(proxyURL)
 	}
+	if err := info.AcquireProviderLimit(c, info.ChannelId); err != nil {
+		return nil, err
+	}
+	info.MarkGatewaySent()
 	targetConn, resp, err := dialer.DialContext(c.Request.Context(), fullRequestURL, targetHeader)
 	if resp != nil {
 		info.GenerationMetrics.SetProviderStatus(resp.StatusCode)

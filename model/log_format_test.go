@@ -35,6 +35,42 @@ func TestFormatUserLogsStripsQuotaSaturation(t *testing.T) {
 	require.Contains(t, parsed, "model_price")
 }
 
+// Rows written before the model-mapping fields moved under admin_info still
+// carry them at the top level. Those legacy keys must be stripped too, or the
+// real upstream model name keeps leaking to non-admin viewers.
+func TestLegacyTopLevelModelMappingIsStrippedForUsers(t *testing.T) {
+	other := common.MapToJsonStr(map[string]any{
+		"model_price":         1.25,
+		"is_model_mapped":     true,
+		"upstream_model_name": "ep-glm-5.3-a9b47a",
+		"response_model": map[string]any{
+			"requested_model": "GLM-5.3",
+			"upstream_model":  "ep-glm-5.3-a9b47a",
+			"returned_model":  "GLM-5.3",
+		},
+	})
+
+	t.Run("user", func(t *testing.T) {
+		logs := []*Log{{Other: other}}
+		formatUserLogs(logs, 0)
+
+		parsed, err := common.StrToMap(logs[0].Other)
+		require.NoError(t, err)
+		require.NotContains(t, parsed, "is_model_mapped")
+		require.NotContains(t, parsed, "upstream_model_name")
+		require.NotContains(t, parsed, "response_model")
+		require.Contains(t, parsed, "model_price")
+		require.NotContains(t, logs[0].Other, "ep-glm-5.3-a9b47a")
+	})
+
+	// Admin views never strip these keys, so the raw value survives untouched.
+	t.Run("admin", func(t *testing.T) {
+		parsed, err := common.StrToMap(other)
+		require.NoError(t, err)
+		require.Equal(t, "ep-glm-5.3-a9b47a", parsed["upstream_model_name"])
+	})
+}
+
 func TestTaskPluginLogVisibilityIsRoleSeparated(t *testing.T) {
 	other := common.MapToJsonStr(map[string]any{
 		"model_price": 1.25,

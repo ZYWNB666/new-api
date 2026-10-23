@@ -210,6 +210,10 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			optionRoute.GET("/", controller.GetOptions)
 			optionRoute.GET("/request_policy", controller.GetRequestPolicy)
+			optionRoute.GET("/gateway_limits", middleware.DisableCache(), controller.GetGatewayLimits)
+			optionRoute.PUT("/gateway_limits", controller.UpdateGatewayLimits)
+			optionRoute.GET("/gateway_limits/usage", middleware.DisableCache(), controller.GetGatewayLimitUsage)
+			optionRoute.GET("/gateway_limits/targets", controller.GetGatewayLimitTargets)
 			optionRoute.PATCH("/request_policy", controller.UpdateRequestPolicy)
 			optionRoute.PUT("/", controller.UpdateOption)
 			optionRoute.PUT("/passkey/domains", controller.UpdatePasskeyDomains)

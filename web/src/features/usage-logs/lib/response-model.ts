@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { LogOtherData } from '../types'
 
 export type ResponseModelObservation = NonNullable<
-  LogOtherData['response_model']
+  NonNullable<LogOtherData['admin_info']>['response_model']
 >
 
 /**

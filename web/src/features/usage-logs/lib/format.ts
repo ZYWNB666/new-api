@@ -239,20 +239,23 @@ export function formatModelName(log: UsageLog): {
   name: string
   isMapped: boolean
   actualModel?: string
-  responseModel?: LogOtherData['response_model']
+  responseModel?: NonNullable<LogOtherData['admin_info']>['response_model']
 } {
   const other = parseLogOther(log.other)
+  // Upstream model names live under admin_info, which the backend strips for
+  // non-admin views. Mapping indicators therefore only appear for admins.
+  const admin = other?.admin_info
   const isMapped = !!(
-    other?.is_model_mapped &&
-    other?.upstream_model_name &&
-    other.upstream_model_name !== ''
+    admin?.is_model_mapped &&
+    admin?.upstream_model_name &&
+    admin.upstream_model_name !== ''
   )
 
   return {
     name: log.model_name,
     isMapped,
-    actualModel: isMapped ? other.upstream_model_name : undefined,
-    responseModel: other?.response_model,
+    actualModel: isMapped ? admin?.upstream_model_name : undefined,
+    responseModel: admin?.response_model,
   }
 }
 

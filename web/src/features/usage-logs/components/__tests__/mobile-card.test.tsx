@@ -104,10 +104,12 @@ it('shows model mismatch evidence when tapping the mobile model badge', async ()
       {
         ...log,
         other: JSON.stringify({
-          response_model: {
-            requested_model: longName,
-            upstream_model: 'mapped-model',
-            returned_model: 'unexpected-model',
+          admin_info: {
+            response_model: {
+              requested_model: longName,
+              upstream_model: 'mapped-model',
+              returned_model: 'unexpected-model',
+            },
           },
         }),
       },
@@ -303,9 +305,11 @@ it('shows mapped model names in full when inspecting a mobile model badge', asyn
       {
         ...log,
         other: JSON.stringify({
-          is_model_mapped: true,
-          upstream_model_name:
-            'provider-production-mapped-model-with-a-long-name',
+          admin_info: {
+            is_model_mapped: true,
+            upstream_model_name:
+              'provider-production-mapped-model-with-a-long-name',
+          },
         }),
       },
     ],

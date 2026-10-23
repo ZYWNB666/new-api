@@ -4,24 +4,27 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const GenerationContextKey = "prometheus_generation"
 const GenerationStartContextKey = "prometheus_request_started"
 
 // Generation tracks a client request across provider retries. It stores times and
-// counts only; no request content, credentials, URLs or model names are retained.
+// counts plus the requested model and numeric tenant ID; no content or credentials are retained.
 type Generation struct {
-	mu          sync.Mutex
-	monitor     *Metrics
-	started     time.Time
-	first, last time.Time
-	stream      bool
-	tokens      int64
-	outcome     string
-	finished    bool
-	classified  bool
-	attempt     *ProviderAttempt
+	mu              sync.Mutex
+	monitor         *Metrics
+	model, tenantID string
+	started         time.Time
+	first, last     time.Time
+	stream          bool
+	tokens          int64
+	outcome         string
+	finished        bool
+	classified      bool
+	attempt         *ProviderAttempt
+	promptUsage     promptCacheUsage
 }
 
 type ProviderAttempt struct {
@@ -32,10 +35,47 @@ type ProviderAttempt struct {
 	stream                 bool
 	status                 int
 	finished               bool
+	promptUsage            promptCacheUsage
 }
 
 func (m *Metrics) NewGeneration(started time.Time) *Generation {
-	return &Generation{monitor: m, started: started, outcome: "failure"}
+	return m.NewGenerationForTenant(started, "", 0, false)
+}
+
+// NewGenerationForTenant uses the client-requested model, before channel mapping.
+func (m *Metrics) NewGenerationForTenant(started time.Time, model string, tenantID int, stream bool) *Generation {
+	if model == "" || len(model) > 256 || !utf8.ValidString(model) {
+		model = "unknown"
+	}
+	tenant := "unknown"
+	if tenantID > 0 {
+		tenant = strconv.Itoa(tenantID)
+	}
+	return &Generation{monitor: m, started: started, outcome: "failure", model: model, tenantID: tenant, stream: stream}
+}
+
+type generationDimensions struct {
+	model, tenantID        string
+	channelID, channelType int
+}
+
+// A process-wide budget covers the full cross product, not just distinct model names.
+func (m *Metrics) generationLabels(model, tenantID string, channelID, channelType int) (string, string) {
+	key := generationDimensions{model: model, tenantID: tenantID, channelID: channelID, channelType: channelType}
+	m.dimensionsMu.Lock()
+	if _, found := m.dimensions[key]; found {
+		m.dimensionsMu.Unlock()
+		return model, tenantID
+	}
+	if len(m.dimensions) < m.dimensionLimit {
+		m.dimensions[key] = struct{}{}
+		m.dimensionCount.Inc()
+		m.dimensionsMu.Unlock()
+		return model, tenantID
+	}
+	m.dimensionsMu.Unlock()
+	m.dimensionOverflow.Inc()
+	return "__other__", "__other__"
 }
 
 func (g *Generation) BeginAttempt(channelID, channelType int, stream bool, started time.Time) *ProviderAttempt {
@@ -131,6 +171,50 @@ func (g *Generation) SetProviderStatus(status int) {
 	}
 }
 
+type promptCacheUsage struct {
+	input, cached int64
+	source        string
+}
+
+// SetPromptCacheUsage stores one usage sample on the active attempt. Recording at
+// Finish makes repeated settlement notifications idempotent and keeps retries distinct.
+func (g *Generation) SetPromptCacheUsage(input, cached int64, source string) {
+	if g == nil {
+		return
+	}
+	if source != "reported" && source != "estimated" && source != "missing" {
+		source = "invalid"
+	}
+	if input < 0 || cached < 0 || cached > input {
+		source = "invalid"
+	}
+	g.mu.Lock()
+	a := g.attempt
+	g.mu.Unlock()
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	if !a.finished {
+		a.promptUsage = promptCacheUsage{input: input, cached: cached, source: source}
+	}
+	a.mu.Unlock()
+}
+
+func (m *Metrics) observePromptCache(model, tenantID, scope string, channelID, channelType int, usage promptCacheUsage) {
+	labels := []string{scope, strconv.Itoa(channelID), strconv.Itoa(channelType), model, tenantID}
+	source := usage.source
+	if source == "" {
+		source = "missing"
+	}
+	m.generationCacheUsage.WithLabelValues(append(labels, source)...).Inc()
+	if source != "reported" {
+		return
+	}
+	m.generationInput.WithLabelValues(labels...).Add(float64(usage.input))
+	m.generationCachedInput.WithLabelValues(labels...).Add(float64(usage.cached))
+}
+
 func (a *ProviderAttempt) Finish(tokens int64, outcome string) {
 	if a == nil {
 		return
@@ -146,9 +230,11 @@ func (a *ProviderAttempt) Finish(tokens int64, outcome string) {
 	default:
 		outcome = "failure"
 	}
-	a.generation.monitor.observeGeneration("provider", a.channelID, a.channelType, a.stream, a.started, a.first, a.last, tokens, a.status, outcome)
+	a.generation.monitor.observeGeneration(a.generation.model, a.generation.tenantID, "provider", a.channelID, a.channelType, a.stream, a.started, a.first, a.last, tokens, a.status, outcome, a.promptUsage)
+	usage := a.promptUsage
 	a.mu.Unlock()
 	a.generation.mu.Lock()
+	a.generation.promptUsage = usage
 	a.generation.tokens = tokens
 	if !a.generation.classified {
 		a.generation.outcome = outcome
@@ -180,21 +266,23 @@ func (g *Generation) FinishSite(status int) {
 		return
 	}
 	g.finished = true
-	g.monitor.observeGeneration("site", 0, 0, g.stream, g.started, g.first, g.last, g.tokens, status, g.outcome)
+	g.monitor.observeGeneration(g.model, g.tenantID, "site", 0, 0, g.stream, g.started, g.first, g.last, g.tokens, status, g.outcome, g.promptUsage)
 }
 
-func (m *Metrics) observeGeneration(scope string, channelID, channelType int, stream bool, started, first, last time.Time, tokens int64, status int, outcome string) {
+func (m *Metrics) observeGeneration(model, tenantID, scope string, channelID, channelType int, stream bool, started, first, last time.Time, tokens int64, status int, outcome string, usage promptCacheUsage) {
+	model, tenantID = m.generationLabels(model, tenantID, channelID, channelType)
+	m.observePromptCache(model, tenantID, scope, channelID, channelType, usage)
 	channel, provider := strconv.Itoa(channelID), strconv.Itoa(channelType)
 	statusLabel := "none"
 	if status >= 100 && status <= 599 {
 		statusLabel = strconv.Itoa(status)
 	}
-	m.generationRequests.WithLabelValues(scope, channel, provider, strconv.FormatBool(stream), statusLabel, outcome).Inc()
+	m.generationRequests.WithLabelValues(scope, channel, provider, model, tenantID, strconv.FormatBool(stream), statusLabel, outcome).Inc()
 	if tokens > 0 {
-		m.generationTokens.WithLabelValues(scope, channel, provider, outcome).Add(float64(tokens))
+		m.generationTokens.WithLabelValues(scope, channel, provider, model, tenantID, outcome).Add(float64(tokens))
 	}
 	if stream && !first.IsZero() && !first.Before(started) {
-		m.generationTTFT.WithLabelValues(scope, channel, provider).Observe(first.Sub(started).Seconds())
+		m.generationTTFT.WithLabelValues(scope, channel, provider, model, tenantID).Observe(first.Sub(started).Seconds())
 	}
 	reason := "measured"
 	switch {
@@ -210,8 +298,8 @@ func (m *Metrics) observeGeneration(scope string, channelID, channelType int, st
 		reason = "insufficient_content_timing"
 	default:
 		interval := last.Sub(first).Seconds() / float64(tokens-1)
-		m.generationTPOT.WithLabelValues(scope, channel, provider).Observe(interval)
-		m.generationTPS.WithLabelValues(scope, channel, provider).Observe(1 / interval)
+		m.generationTPOT.WithLabelValues(scope, channel, provider, model, tenantID).Observe(interval)
+		m.generationTPS.WithLabelValues(scope, channel, provider, model, tenantID).Observe(1 / interval)
 	}
-	m.generationSamples.WithLabelValues(scope, channel, provider, reason).Inc()
+	m.generationSamples.WithLabelValues(scope, channel, provider, model, tenantID, reason).Inc()
 }
