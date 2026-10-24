@@ -1,0 +1,38 @@
+rule_files:
+  - newapi-traffic.rules.yml
+evaluation_interval: 15s
+tests:
+  - interval: 15s
+    input_series:
+      - series: 'new_api_generation_started_total{job="new-api",instance="gateway",scope="site",tenant_id="42",model="model-a"}'
+        values: '0+1x8'
+      - series: 'new_api_generation_started_total{job="new-api",instance="gateway",scope="provider",tenant_id="42",model="model-a"}'
+        values: '0+10x8'
+      - series: 'new_api_generation_tokens_total{job="new-api",instance="gateway",scope="site",tenant_id="42",model="model-a",direction="input"}'
+        values: '0+2x8'
+      - series: 'new_api_generation_tokens_total{job="new-api",instance="gateway",scope="site",tenant_id="42",model="model-a",direction="output"}'
+        values: '0+3x8'
+      - series: 'new_api_generation_requests_in_flight{job="new-api",instance="gateway",scope="site",tenant_id="42",model="model-a"}'
+        values: '3+0x8'
+      - series: 'new_api_generation_requests_in_flight{job="new-api",instance="gateway",scope="provider",tenant_id="42",model="model-a"}'
+        values: '9+0x8'
+      - series: 'new_api_generation_started_total{job="new-api",instance="gateway",scope="site",tenant_id="43",model="model-b"}'
+        values: '0+2x8'
+    promql_expr_test:
+      - expr: round(new_api_user_model_rpm)
+        eval_time: 1m
+        exp_samples:
+          - labels: '{job="new-api",instance="gateway",tenant_id="42",model="model-a"}'
+            value: 4
+          - labels: '{job="new-api",instance="gateway",tenant_id="43",model="model-b"}'
+            value: 8
+      - expr: round(new_api_user_model_tpm)
+        eval_time: 1m
+        exp_samples:
+          - labels: '{job="new-api",instance="gateway",tenant_id="42",model="model-a"}'
+            value: 20
+      - expr: new_api_user_model_running_requests
+        eval_time: 1m
+        exp_samples:
+          - labels: 'new_api_user_model_running_requests{job="new-api",instance="gateway",tenant_id="42",model="model-a"}'
+            value: 3

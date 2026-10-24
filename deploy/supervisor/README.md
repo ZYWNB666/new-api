@@ -111,3 +111,25 @@ sudo tail -f /var/log/new-api/error.log
 # 查看进程
 ps aux | grep new-api
 ```
+
+## 用户与模型流量监控
+
+启用 Prometheus metrics 后，`/metrics` 提供以下带 `tenant_id`（用户账号 ID）、`model`（客户端原始模型名）和 `scope` 标签的指标：
+
+- `new_api_generation_started_total`：进入 relay 的请求数，包含本地限流拒绝。
+- `new_api_generation_tokens_total{direction="input|output"}`：完成请求的输入、输出 token，包含缓存输入和适配器估算；缺失、无效输入用量不计入。
+- `new_api_generation_requests_in_flight`：完整请求生命周期的当前并发，包括等待上游、流式生成；结束、取消或异常时释放。
+- `new_api_generation_requests_total{status="...",outcome="..."}`：完成请求的 HTTP 状态码和协议结果。流式响应提交后失败仍可能是 HTTP 200。
+
+使用 `scope="site"` 时每个客户端请求计一次；`scope="provider"` 按渠道尝试计数。管理接口不计入生成并发。验证请求体之前的拒绝无法归属到模型，不计入这些生成指标。超出 `METRICS_MAX_GENERATION_LABELSETS` 的新标签组合聚合到 `__other__`。
+
+将 `deploy/prometheus/newapi-traffic.rules.yml` 加入 Prometheus 的 `rule_files` 并重新加载配置，提供 `new_api_user_model_rpm`、`new_api_user_model_tpm`、`new_api_user_model_running_requests`。规则要求采集任务名为 `new-api`，建议每 15 秒采样。
+
+```yaml
+rule_files:
+  - /opt/monitoring/config/rules/newapi-traffic.rules.yml
+```
+
+导入 `deploy/grafana/newapi-traffic.json`，数据源 UID 为 `newapi-prometheus`。面板支持实例、用户 ID、模型筛选，展示 RPM、TPM、并发、状态码和用量质量。RPM/TPM 使用最近 1 分钟速率乘 60，不是限流令牌桶的占用或剩余额度；TPM 在请求完成后更新，短请求可能无法被并发采样捕获，新指标不回填历史数据。
+
+规则可使用 `promtool test rules deploy/prometheus/newapi-traffic.test.yml` 验证。

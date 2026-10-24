@@ -656,7 +656,7 @@ func TestGenerationMetricsSeparateRequestedModelAndTenant(t *testing.T) {
 		g.FinishSite(http.StatusOK)
 	}
 	families := scrapeMetrics(t, m.Handler())
-	for _, name := range []string{"new_api_generation_requests_total", "new_api_generation_output_tokens_total", "new_api_generation_time_to_first_token_seconds", "new_api_generation_time_per_output_token_seconds", "new_api_generation_tokens_per_second", "new_api_generation_samples_total"} {
+	for _, name := range []string{"new_api_generation_requests_total", "new_api_generation_started_total", "new_api_generation_requests_in_flight", "new_api_generation_output_tokens_total", "new_api_generation_time_to_first_token_seconds", "new_api_generation_time_per_output_token_seconds", "new_api_generation_tokens_per_second", "new_api_generation_samples_total"} {
 		require.Contains(t, families, name)
 		require.Len(t, families[name].Metric, 6)
 		seen := map[string]bool{}
@@ -697,6 +697,109 @@ func TestGenerationDimensionBudgetPreservesTotals(t *testing.T) {
 	assert.Equal(t, map[string]float64{"first:1": 2, "__other__:__other__": 2}, totals)
 	assert.Equal(t, float64(2), families["new_api_generation_dimension_overflow_total"].Metric[0].GetCounter().GetValue())
 	assert.Equal(t, float64(1), families["new_api_generation_dimension_labelsets"].Metric[0].GetGauge().GetValue())
+	for _, metric := range families["new_api_generation_requests_in_flight"].Metric {
+		assert.Zero(t, metric.GetGauge().GetValue(), "overflow must release the same series it acquired")
+	}
+}
+
+func TestGenerationTrafficLifecycle(t *testing.T) {
+	m := metrics.New()
+	start := time.Unix(1000, 0)
+	g := m.NewGenerationForTenant(start, "model-a", 42, true)
+	other := m.NewGenerationForTenant(start, "model-b", 43, false)
+	a := g.BeginAttempt(7, 1, true, start)
+	families := scrapeMetrics(t, m.Handler())
+	require.Len(t, families["new_api_generation_requests_in_flight"].Metric, 3)
+	for _, metric := range families["new_api_generation_requests_in_flight"].Metric {
+		assert.Equal(t, float64(1), metric.GetGauge().GetValue())
+	}
+	a.SetStatus(502)
+	a.Finish(0, "failure")
+	families = scrapeMetrics(t, m.Handler())
+	assert.Equal(t, float64(1), generationMetric(t, families, "new_api_generation_requests_in_flight", "site", "0").GetGauge().GetValue())
+	assert.Zero(t, generationMetric(t, families, "new_api_generation_requests_in_flight", "provider", "7").GetGauge().GetValue())
+	b := g.BeginAttempt(8, 1, true, start)
+	b.SetStatus(200)
+	g.SetPromptCacheUsage(200, 100, "reported")
+	b.Finish(7, "success")
+	b.Finish(7, "success")
+	g.FinishSite(200)
+	g.FinishSite(200)
+	other.FinishSite(429)
+	require.Nil(t, g.BeginAttempt(9, 1, true, start), "finished requests cannot acquire new concurrent slots")
+	families = scrapeMetrics(t, m.Handler())
+	for _, metric := range families["new_api_generation_requests_in_flight"].Metric {
+		assert.Zero(t, metric.GetGauge().GetValue())
+	}
+	assert.Equal(t, float64(1), generationMetric(t, families, "new_api_generation_started_total", "provider", "7").GetCounter().GetValue())
+	assert.Equal(t, float64(1), generationMetric(t, families, "new_api_generation_started_total", "provider", "8").GetCounter().GetValue())
+	for _, scope := range []string{"site", "provider"} {
+		var total float64
+		for _, metric := range families["new_api_generation_tokens_total"].Metric {
+			for _, label := range metric.Label {
+				if label.GetName() == "scope" && label.GetValue() == scope {
+					total += metric.GetCounter().GetValue()
+				}
+			}
+		}
+		assert.Equal(t, float64(207), total, "tokens must count once per finished scope")
+	}
+}
+
+func TestGenerationConcurrencyReleasedOnRequestTermination(t *testing.T) {
+	for _, termination := range []string{"success", "client_cancel", "panic", "local_rejection"} {
+		t.Run(termination, func(t *testing.T) {
+			m := metrics.New()
+			router := gin.New()
+			router.Use(m.Middleware(), gin.CustomRecoveryWithWriter(io.Discard, func(c *gin.Context, _ any) {
+				c.AbortWithStatus(500)
+			}))
+			router.POST("/generate", func(c *gin.Context) {
+				g := m.NewGenerationForTenant(time.Now(), "stream-model", 42, true)
+				c.Set(metrics.GenerationContextKey, g)
+				if termination == "local_rejection" {
+					c.AbortWithStatus(429)
+					return
+				}
+				g.BeginAttempt(7, 1, true, time.Now())
+				families := scrapeMetrics(t, m.Handler())
+				assert.Equal(t, float64(1), generationMetric(t, families, "new_api_generation_requests_in_flight", "site", "0").GetGauge().GetValue())
+				assert.Equal(t, float64(1), generationMetric(t, families, "new_api_generation_requests_in_flight", "provider", "7").GetGauge().GetValue())
+				switch termination {
+				case "client_cancel":
+					assert.ErrorIs(t, c.Request.Context().Err(), context.Canceled)
+					c.Status(499)
+				case "panic":
+					panic("terminated")
+				default:
+					c.Header("Content-Type", "text/event-stream")
+					_, err := c.Writer.WriteString("data: hello\n\n")
+					require.NoError(t, err)
+					c.Writer.Flush()
+				}
+			})
+			request := httptest.NewRequest(http.MethodPost, "/generate", nil)
+			if termination == "client_cancel" {
+				ctx, cancel := context.WithCancel(request.Context())
+				cancel()
+				request = request.WithContext(ctx)
+			}
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			status := map[string]int{"success": 200, "client_cancel": 499, "panic": 500, "local_rejection": 429}[termination]
+			assert.Equal(t, status, response.Code)
+			families := scrapeMetrics(t, m.Handler())
+			for _, metric := range families["new_api_generation_requests_in_flight"].Metric {
+				assert.Zero(t, metric.GetGauge().GetValue())
+			}
+			metric := generationMetric(t, families, "new_api_generation_requests_total", "site", "0")
+			for _, label := range metric.Label {
+				if label.GetName() == "status" {
+					assert.Equal(t, strconv.Itoa(status), label.GetValue())
+				}
+			}
+		})
+	}
 }
 
 func TestLocalRejectionRetainsGenerationTenantLabels(t *testing.T) {
@@ -753,7 +856,7 @@ func TestPromptCacheUsageNormalizesProviderSemantics(t *testing.T) {
 		{name: "missing", source: "missing"},
 		{name: "invalid", usage: &dto.Usage{PromptTokens: 10, PromptTokensDetails: dto.InputTokenDetails{CachedTokens: 60}}, source: "invalid"},
 		{name: "negative", usage: &dto.Usage{PromptTokens: -1}, source: "invalid"},
-		{name: "estimated", usage: &dto.Usage{BillingUsage: &dto.BillingUsage{Estimated: true, Source: dto.BillingUsageSourceOAIChat, OpenAIUsage: &dto.Usage{PromptTokens: 100}}}, source: "estimated"},
+		{name: "estimated", usage: &dto.Usage{BillingUsage: &dto.BillingUsage{Estimated: true, Source: dto.BillingUsageSourceOAIChat, OpenAIUsage: &dto.Usage{PromptTokens: 100}}}, input: 100, source: "estimated"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := metrics.New()
@@ -786,6 +889,27 @@ func TestPromptCacheUsageNormalizesProviderSemantics(t *testing.T) {
 					assert.Equal(t, tc.cached, generationMetric(t, families, "new_api_generation_cached_input_tokens_total", scope, channel).GetCounter().GetValue())
 				} else {
 					assert.NotContains(t, families, "new_api_generation_input_tokens_total")
+				}
+				var inputTotal, outputTotal float64
+				for _, metric := range families["new_api_generation_tokens_total"].Metric {
+					labels := map[string]string{}
+					for _, label := range metric.Label {
+						labels[label.GetName()] = label.GetValue()
+					}
+					if labels["scope"] != scope {
+						continue
+					}
+					if labels["direction"] == "input" {
+						inputTotal += metric.GetCounter().GetValue()
+					} else {
+						outputTotal += metric.GetCounter().GetValue()
+					}
+				}
+				assert.Equal(t, float64(5), outputTotal)
+				if tc.source == "reported" || tc.source == "estimated" {
+					assert.Equal(t, tc.input, inputTotal)
+				} else {
+					assert.Zero(t, inputTotal)
 				}
 			}
 		})

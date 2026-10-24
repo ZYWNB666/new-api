@@ -1006,10 +1006,10 @@ func (info *RelayInfo) ReportPromptCacheUsage(usage *dto.Usage) {
 		info.GenerationMetrics.SetPromptCacheUsage(0, 0, "missing")
 		return
 	}
+	source := "reported"
 	if usage.BillingUsage != nil {
 		if usage.BillingUsage.Estimated {
-			info.GenerationMetrics.SetPromptCacheUsage(0, 0, "estimated")
-			return
+			source = "estimated"
 		}
 		if canonical, ok := usage.BillingUsage.CanonicalUsage(); ok {
 			usage = canonical
@@ -1031,7 +1031,7 @@ func (info *RelayInfo) ReportPromptCacheUsage(usage *dto.Usage) {
 			input += count
 		}
 	}
-	info.GenerationMetrics.SetPromptCacheUsage(input, cached, "reported")
+	info.GenerationMetrics.SetPromptCacheUsage(input, cached, source)
 }
 
 // BeginProviderMetrics starts one provider invocation after conversion and before I/O.

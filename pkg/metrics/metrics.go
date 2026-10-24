@@ -42,6 +42,9 @@ type Metrics struct {
 	tokenizerTokens       *prometheus.CounterVec
 	tokenizerInFlight     prometheus.Gauge
 	generationRequests    *prometheus.CounterVec
+	generationStarted     *prometheus.CounterVec
+	generationInFlight    *prometheus.GaugeVec
+	generationUsageTokens *prometheus.CounterVec
 	generationTTFT        *prometheus.HistogramVec
 	generationTPOT        *prometheus.HistogramVec
 	generationTPS         *prometheus.HistogramVec
@@ -82,6 +85,15 @@ func New() *Metrics {
 		generationRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "new_api_generation_requests_total", Help: "Finished site requests or provider adaptor calls, including HTTP status and protocol outcome. Provider calls include SDK paths; SDK-internal retries are one adaptor call.",
 		}, []string{"scope", "channel_id", "channel_type", "model", "tenant_id", "stream", "status", "outcome"}),
+		generationStarted: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "new_api_generation_started_total", Help: "Site requests entering relay processing or provider attempts starting I/O. Includes local rejections at site scope; use rate times 60 for RPM.",
+		}, []string{"scope", "channel_id", "channel_type", "model", "tenant_id"}),
+		generationInFlight: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "new_api_generation_requests_in_flight", Help: "Active site requests or provider attempts across their full lifetime, including response bodies and streams. Retries count once at site scope; excludes management HTTP requests.",
+		}, []string{"scope", "channel_id", "channel_type", "model", "tenant_id"}),
+		generationUsageTokens: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "new_api_generation_tokens_total", Help: "Input and output tokens recorded when requests finish, including adaptor estimates. Input includes cache reads and writes; missing or invalid input usage is excluded. Use summed rate times 60 for TPM; not billing quantities.",
+		}, []string{"scope", "channel_id", "channel_type", "model", "tenant_id", "direction"}),
 		generationTTFT: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name: "new_api_generation_time_to_first_token_seconds", Help: "Time to first nonempty text, reasoning or tool payload; provider measures receipt, site measures successful forwarding. Non-streaming responses are excluded.",
 			Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300},
@@ -173,6 +185,7 @@ func New() *Metrics {
 		m.connectionAcquire, m.connections,
 		m.tokenizerDuration, m.tokenizerBytes, m.tokenizerTokens, m.tokenizerInFlight,
 		m.generationRequests, m.generationTTFT, m.generationTPOT, m.generationTPS, m.generationTokens, m.generationSamples, m.generationInput, m.generationCachedInput, m.generationCacheUsage,
+		m.generationStarted, m.generationInFlight, m.generationUsageTokens,
 	)
 	return m
 }

@@ -1,0 +1,10 @@
+groups:
+  - name: new-api-user-model-traffic
+    interval: 15s
+    rules:
+      - record: new_api_user_model_rpm
+        expr: sum by (job, instance, tenant_id, model) (rate(new_api_generation_started_total{job="new-api",scope="site",tenant_id!=""}[1m])) * 60
+      - record: new_api_user_model_tpm
+        expr: sum by (job, instance, tenant_id, model) (rate(new_api_generation_tokens_total{job="new-api",scope="site",tenant_id!=""}[1m])) * 60
+      - record: new_api_user_model_running_requests
+        expr: sum by (job, instance, tenant_id, model) (new_api_generation_requests_in_flight{job="new-api",scope="site",tenant_id!=""})
