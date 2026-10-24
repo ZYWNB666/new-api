@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useFormContext } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
+import { JsonEditor } from '@/components/json-editor'
 import {
   FormControl,
   FormDescription,
@@ -39,6 +40,60 @@ export function RetrySection() {
   return (
     <SettingsCard title={t('Retry budget')} className='shadow-none'>
       <div className='space-y-4'>
+        <FormField
+          control={form.control}
+          name='RelayTTFTTimeout'
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>
+                {t('Upstream first chunk timeout (seconds)')}
+              </FormLabel>
+              <FormControl>
+                <Input
+                  type='number'
+                  min={0}
+                  max={9223372036}
+                  step={1}
+                  {...safeNumberFieldProps(field)}
+                />
+              </FormControl>
+              <FormDescription>
+                {t(
+                  'Streaming only. Starts after the request is sent and ends on the first response body byte. 0 disables it. Local heartbeats wait until then; timeouts use status 499 and the existing session and retry policy.'
+                )}
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name='RelayTTFTModelTimeouts'
+          render={({ field }) => (
+            <FormItem>
+              <div role='group' aria-label={t('Model first chunk timeouts')}>
+                <p className='mb-2 text-sm font-medium'>
+                  {t('Model first chunk timeouts')}
+                </p>
+                <JsonEditor
+                  value={field.value}
+                  onChange={(value) => field.onChange(value || '{}')}
+                  valueType='any'
+                  keyLabel={t('Model')}
+                  keyPlaceholder={t('Model')}
+                  valueLabel={t('Timeout (seconds)')}
+                  valuePlaceholder={t('Timeout (seconds)')}
+                />
+              </div>
+              <FormDescription>
+                {t(
+                  'Exact original model names. Missing models inherit the default; 0 disables the timeout for that model.'
+                )}
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
         <FormField
           control={form.control}
           name='RetryTimes'

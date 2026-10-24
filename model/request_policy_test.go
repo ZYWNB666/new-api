@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -92,6 +93,19 @@ func TestRequestPolicyDatabaseMatrix(t *testing.T) {
 			loadOptionsFromDatabase()
 			assert.Equal(t, "strict", CurrentRequestPolicy().Affinity.SessionMode)
 			assert.Equal(t, rules, CurrentRequestPolicy().Options["channel_affinity_setting.rules"], "a global mode never rewrites rule fields")
+			// Existing option rows survive adding and reloading the first-chunk policy.
+			require.NoError(t, UpdateRequestPolicyOptions(map[string]string{
+				"RelayTTFTTimeout": "45", "RelayTTFTModelTimeouts": `{"GLM-5.3":60,"disabled-model":0}`,
+			}))
+			loadOptionsFromDatabase()
+			loadOptionsFromDatabase()
+			assert.Equal(t, 45*time.Second, CurrentRequestPolicy().FirstChunkTimeout("other-model"))
+			assert.Equal(t, 60*time.Second, CurrentRequestPolicy().FirstChunkTimeout("GLM-5.3"))
+			assert.Zero(t, CurrentRequestPolicy().FirstChunkTimeout("disabled-model"))
+			assert.Equal(t, rules, CurrentRequestPolicy().Options["channel_affinity_setting.rules"])
+			require.NoError(t, UpdateOption("RelayTTFTModelTimeouts", "{}"))
+			loadOptionsFromDatabase()
+			assert.Equal(t, 45*time.Second, CurrentRequestPolicy().FirstChunkTimeout("GLM-5.3"), "removed overrides inherit the default")
 			snapshot := CurrentRequestPolicy()
 			assert.Error(t, UpdateRequestPolicyOptions(map[string]string{"channel_affinity_setting.session_mode": "unknown"}))
 			assert.Same(t, snapshot, CurrentRequestPolicy())
@@ -118,5 +132,28 @@ func TestRequestPolicyDatabaseMatrix(t *testing.T) {
 			loadOptionsFromDatabase()
 			assert.Equal(t, "strict", CurrentRequestPolicy().Affinity.SessionMode, "a failed save keeps the persisted global mode")
 		})
+	}
+}
+
+func TestFirstChunkPolicyValidation(t *testing.T) {
+	previousTimeout := common.RelayTTFTTimeout
+	t.Cleanup(func() { common.RelayTTFTTimeout = previousTimeout })
+	common.RelayTTFTTimeout = 17
+	snapshot, err := BuildRequestPolicy(nil)
+	require.NoError(t, err)
+	assert.Equal(t, 17*time.Second, snapshot.FirstChunkTimeout("any-model"))
+	snapshot, err = BuildRequestPolicy(map[string]string{"RelayTTFTTimeout": "0", "RelayTTFTModelTimeouts": `{"slow-model":120}`})
+	require.NoError(t, err)
+	assert.Zero(t, snapshot.FirstChunkTimeout("other-model"))
+	assert.Equal(t, 120*time.Second, snapshot.FirstChunkTimeout("slow-model"))
+	for _, values := range []map[string]string{
+		{"RelayTTFTTimeout": "-1"}, {"RelayTTFTTimeout": "1.5"}, {"RelayTTFTTimeout": "9223372037"},
+		{"RelayTTFTModelTimeouts": "[]"}, {"RelayTTFTModelTimeouts": "null"},
+		{"RelayTTFTModelTimeouts": `{"model":null}`}, {"RelayTTFTModelTimeouts": `{"model":-1}`},
+		{"RelayTTFTModelTimeouts": `{"model":0.5}`}, {"RelayTTFTModelTimeouts": `{"model":"30"}`},
+		{"RelayTTFTModelTimeouts": `{"model":9223372037}`}, {"RelayTTFTModelTimeouts": `{" model":30}`},
+	} {
+		_, err := BuildRequestPolicy(values)
+		assert.Error(t, err, "%v", values)
 	}
 }

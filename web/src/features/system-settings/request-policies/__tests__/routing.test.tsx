@@ -26,6 +26,8 @@ import { RoutingPolicySection } from '../routing-section'
 
 const options = {
   RetryTimes: '2',
+  RelayTTFTTimeout: '30',
+  RelayTTFTModelTimeouts: '{}',
   'channel_affinity_setting.enabled': 'true',
   'channel_affinity_setting.session_mode': '',
   'channel_affinity_setting.switch_on_success': 'false',
@@ -50,6 +52,65 @@ const options = {
   ]),
   AutomaticRetryStatusCodes: '429,500-503',
 }
+
+it('saves model first chunk timeouts with the existing retry and session settings', async () => {
+  show()
+  const timeout = await screen.findByRole('spinbutton', {
+    name: 'Upstream first chunk timeout (seconds)',
+  })
+  fireEvent.change(timeout, { target: { value: '45' } })
+  const overrides = screen.getByRole('group', {
+    name: 'Model first chunk timeouts',
+  })
+  await userEvent.click(
+    within(overrides).getByRole('button', { name: 'Add Row' })
+  )
+  fireEvent.change(within(overrides).getByPlaceholderText('Model'), {
+    target: { value: 'GLM-5.3' },
+  })
+  fireEvent.change(
+    within(overrides).getByPlaceholderText('Timeout (seconds)'),
+    {
+      target: { value: '0' },
+    }
+  )
+  await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+  await waitFor(() => expect(api.patch).toHaveBeenCalled())
+  expect(currentOptions.RelayTTFTTimeout).toBe('45')
+  expect(JSON.parse(currentOptions.RelayTTFTModelTimeouts)).toEqual({
+    'GLM-5.3': 0,
+  })
+  expect(currentOptions.RetryTimes).toBe('2')
+  expect(currentOptions['channel_affinity_setting.rules']).toBe(
+    options['channel_affinity_setting.rules']
+  )
+})
+
+it('rejects invalid model timeout values before saving', async () => {
+  show()
+  const overrides = await screen.findByRole('group', {
+    name: 'Model first chunk timeouts',
+  })
+  await userEvent.click(
+    within(overrides).getByRole('button', { name: 'Add Row' })
+  )
+  fireEvent.change(within(overrides).getByPlaceholderText('Model'), {
+    target: { value: 'GLM-5.3' },
+  })
+  fireEvent.change(
+    within(overrides).getByPlaceholderText('Timeout (seconds)'),
+    {
+      target: { value: '-1' },
+    }
+  )
+  await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+  expect(
+    await screen.findByText(
+      'Use a JSON object mapping model names to non-negative integer seconds.'
+    )
+  ).toBeVisible()
+  expect(api.patch).not.toHaveBeenCalled()
+})
 let currentOptions: Record<string, string>
 let client: QueryClient
 beforeEach(() => {

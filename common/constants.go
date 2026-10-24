@@ -165,6 +165,9 @@ var BatchUpdateInterval int
 
 var RelayTimeout int // unit is second
 
+// RelayTTFTTimeout is the environment fallback for the streaming first-chunk policy.
+var RelayTTFTTimeout = 30
+
 var RelayIdleConnTimeout int // unit is second
 
 // RelayResponseHeaderTimeout limits how long the relay transport waits for the

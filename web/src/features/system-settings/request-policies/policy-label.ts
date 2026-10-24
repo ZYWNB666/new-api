@@ -5,6 +5,10 @@ import type { TFunction } from 'i18next'
 // sources reported by the channel operations summary.
 export function policyLabel(t: TFunction, value: string): string {
   switch (value) {
+    case 'client_canceled':
+      return t('Client cancelled the request')
+    case 'response_committed':
+      return t('Response already started')
     case 'upstream_failure':
       return t('Upstream request failed')
     case 'request_failed':

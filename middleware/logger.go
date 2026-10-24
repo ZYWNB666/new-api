@@ -2,8 +2,6 @@ package middleware
 
 import (
 	"fmt"
-	"maps"
-	"slices"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -17,38 +15,7 @@ func RouteTag(tag string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Set(RouteTagKey, tag)
 		if tag == "relay" && common.GetEnvOrDefaultBool("LOG_REQUEST_HEADERS", false) {
-			headers := map[string][]string{"Host": {c.Request.Host[:min(len(c.Request.Host), 512)]}}
-			for _, name := range slices.Sorted(maps.Keys(c.Request.Header)) {
-				if len(headers) >= 64 {
-					headers["_truncated"] = []string{"too many headers"}
-					break
-				}
-				lower := strings.ToLower(name)
-				sensitive := lower == "referer" || lower == "sec-websocket-protocol"
-				for _, part := range []string{"auth", "cookie", "key", "token", "secret", "password", "credential", "signature", "url", "uri"} {
-					if strings.Contains(lower, part) {
-						sensitive = true
-						break
-					}
-				}
-				if sensitive {
-					headers[name] = []string{"[REDACTED]"}
-					continue
-				}
-				for i, value := range c.Request.Header[name] {
-					if i == 4 {
-						headers[name] = append(headers[name], "[TRUNCATED]")
-						break
-					}
-					if len(value) > 512 {
-						value = value[:512] + "[TRUNCATED]"
-					}
-					headers[name] = append(headers[name], value)
-				}
-			}
-			if encoded, err := common.Marshal(headers); err == nil {
-				logger.LogInfo(c.Request.Context(), "client request headers: "+string(encoded))
-			}
+			logger.LogHTTPHeaders(c.Request.Context(), "client request headers", c.Request.Header, c.Request.Host)
 		}
 		c.Next()
 	}

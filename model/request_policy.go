@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting"
@@ -22,15 +23,17 @@ import (
 // settings API. It is rebuilt from the option map on every option write, so
 // the runtime globals updated by the same write never disagree with it.
 type RequestPolicySnapshot struct {
-	Affinity        operation_setting.ChannelAffinitySetting
-	RetryTimes      int
-	RetryCodes      []operation_setting.StatusCodeRange
-	DisableCodes    []operation_setting.StatusCodeRange
-	DisableKeywords []string
-	CheckText       bool
-	TextKeywords    []string
-	AutoDisable     bool
-	Options         map[string]string
+	Affinity          operation_setting.ChannelAffinitySetting
+	RetryTimes        int
+	TTFTTimeout       int
+	TTFTModelTimeouts map[string]int
+	RetryCodes        []operation_setting.StatusCodeRange
+	DisableCodes      []operation_setting.StatusCodeRange
+	DisableKeywords   []string
+	CheckText         bool
+	TextKeywords      []string
+	AutoDisable       bool
+	Options           map[string]string
 }
 
 var requestPolicySnapshot atomic.Pointer[RequestPolicySnapshot]
@@ -52,6 +55,8 @@ func requestPolicyDefaultOptions() map[string]string {
 		}
 	}
 	defaults["RetryTimes"] = strconv.Itoa(common.RetryTimes)
+	defaults["RelayTTFTTimeout"] = strconv.Itoa(common.RelayTTFTTimeout)
+	defaults["RelayTTFTModelTimeouts"] = "{}"
 	defaults["AutomaticRetryStatusCodes"] = operation_setting.AutomaticRetryStatusCodesToString()
 	defaults["AutomaticDisableStatusCodes"] = operation_setting.AutomaticDisableStatusCodesToString()
 	defaults["AutomaticDisableKeywords"] = operation_setting.AutomaticDisableKeywordsToString()
@@ -69,6 +74,8 @@ func IsRequestPolicyOption(key string) bool {
 		return true
 	}
 	switch key {
+	case "RelayTTFTTimeout", "RelayTTFTModelTimeouts":
+		return true
 	case "CheckSensitiveEnabled", "CheckSensitiveOnPromptEnabled", "SensitiveWords", "AutomaticEnableChannelEnabled", "ChannelDisableThreshold", "monitor_setting.auto_test_channel_enabled", "monitor_setting.auto_test_channel_minutes", "monitor_setting.channel_test_concurrency", "monitor_setting.channel_test_mode", "RetryTimes", "AutomaticRetryStatusCodes", "AutomaticDisableChannelEnabled", "AutomaticDisableStatusCodes", "AutomaticDisableKeywords":
 		return true
 	}
@@ -96,8 +103,26 @@ func BuildRequestPolicy(options map[string]string) (*RequestPolicySnapshot, erro
 			raw[key] = value
 		}
 	}
+	// InitEnv runs after package initialization (and after .env is loaded).
+	raw["RelayTTFTTimeout"] = strconv.Itoa(common.RelayTTFTTimeout)
 	maps.Copy(raw, options)
 	snapshot := &RequestPolicySnapshot{Options: raw}
+	var err error
+	snapshot.TTFTTimeout, err = strconv.Atoi(raw["RelayTTFTTimeout"])
+	if err != nil || snapshot.TTFTTimeout < 0 || int64(snapshot.TTFTTimeout) > math.MaxInt64/int64(time.Second) {
+		return nil, fmt.Errorf("first-chunk timeout must be non-negative integer seconds within time.Duration range")
+	}
+	var modelTimeouts map[string]*int
+	if err := common.UnmarshalJsonStr(raw["RelayTTFTModelTimeouts"], &modelTimeouts); err != nil || modelTimeouts == nil {
+		return nil, fmt.Errorf("model first-chunk timeouts must be a JSON object of non-negative integer seconds")
+	}
+	snapshot.TTFTModelTimeouts = make(map[string]int, len(modelTimeouts))
+	for name, seconds := range modelTimeouts {
+		if strings.TrimSpace(name) == "" || name != strings.TrimSpace(name) || seconds == nil || *seconds < 0 || int64(*seconds) > math.MaxInt64/int64(time.Second) {
+			return nil, fmt.Errorf("invalid first-chunk timeout for model %q", name)
+		}
+		snapshot.TTFTModelTimeouts[name] = *seconds
+	}
 	affinityFields := map[string]string{}
 	for key, value := range raw {
 		if field, ok := strings.CutPrefix(key, "channel_affinity_setting."); ok {
@@ -200,6 +225,15 @@ func BuildRequestPolicy(options map[string]string) (*RequestPolicySnapshot, erro
 		}
 	}
 	return snapshot, nil
+}
+
+// FirstChunkTimeout matches the original client model, before channel mapping.
+func (s *RequestPolicySnapshot) FirstChunkTimeout(model string) time.Duration {
+	seconds, ok := s.TTFTModelTimeouts[model]
+	if !ok {
+		seconds = s.TTFTTimeout
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 func refreshRequestPolicySnapshot() error {

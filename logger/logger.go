@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
+	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -75,6 +79,47 @@ func SetupLogger() {
 
 func LogInfo(ctx context.Context, msg string) {
 	logHelper(ctx, loggerINFO, msg)
+}
+
+// LogHTTPHeaders bounds and redacts header values without changing the headers
+// used by the relay. For requests, host is stored separately by net/http; pass
+// an empty host for response headers.
+func LogHTTPHeaders(ctx context.Context, prefix string, header http.Header, host string) {
+	headers := make(map[string][]string)
+	if host != "" {
+		headers["Host"] = []string{host[:min(len(host), 512)]}
+	}
+	for _, name := range slices.Sorted(maps.Keys(header)) {
+		if len(headers) >= 64 {
+			headers["_truncated"] = []string{"too many headers"}
+			break
+		}
+		lower := strings.ToLower(name)
+		sensitive := lower == "referer" || lower == "sec-websocket-protocol" || lower == "location" || lower == "content-location" || lower == "link" || lower == "refresh"
+		for _, part := range []string{"auth", "cookie", "key", "token", "secret", "password", "credential", "signature", "url", "uri"} {
+			if strings.Contains(lower, part) {
+				sensitive = true
+				break
+			}
+		}
+		if sensitive {
+			headers[name] = []string{"[REDACTED]"}
+			continue
+		}
+		for i, value := range header[name] {
+			if i == 4 {
+				headers[name] = append(headers[name], "[TRUNCATED]")
+				break
+			}
+			if len(value) > 512 {
+				value = value[:512] + "[TRUNCATED]"
+			}
+			headers[name] = append(headers[name], value)
+		}
+	}
+	if encoded, err := common.Marshal(headers); err == nil {
+		LogInfo(ctx, prefix+": "+string(encoded))
+	}
 }
 
 func LogWarn(ctx context.Context, msg string, args ...any) {

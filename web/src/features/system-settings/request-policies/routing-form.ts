@@ -6,6 +6,30 @@ import { parseHttpStatusCodeRules } from '@/lib/http-status-code-rules'
 export function createRoutingPolicySchema(t: TFunction) {
   return z.object({
     RetryTimes: z.number().int().min(0).max(99),
+    RelayTTFTTimeout: z.number().int().min(0).max(9223372036),
+    RelayTTFTModelTimeouts: z.string().superRefine((value, context) => {
+      try {
+        const parsed: unknown = JSON.parse(value)
+        const result = z
+          .record(
+            z
+              .string()
+              .min(1)
+              .refine((name) => name === name.trim()),
+            z.number().int().min(0).max(9223372036)
+          )
+          .safeParse(parsed)
+        if (result.success) return
+      } catch {
+        // Report the same actionable validation for syntax and value errors.
+      }
+      context.addIssue({
+        code: 'custom',
+        message: t(
+          'Use a JSON object mapping model names to non-negative integer seconds.'
+        ),
+      })
+    }),
     AutomaticRetryStatusCodes: z
       .string()
       .refine(
@@ -48,6 +72,8 @@ export function routingPolicyFormValues(
 ): RoutingPolicyFormValues {
   return {
     RetryTimes: Number(options.RetryTimes),
+    RelayTTFTTimeout: Number(options.RelayTTFTTimeout ?? 30),
+    RelayTTFTModelTimeouts: options.RelayTTFTModelTimeouts ?? '{}',
     AutomaticRetryStatusCodes: options.AutomaticRetryStatusCodes,
     channel_affinity_setting: {
       enabled: options['channel_affinity_setting.enabled'] === 'true',
@@ -71,6 +97,8 @@ export function routingPolicyOptions(
 ): Record<string, string> {
   return {
     RetryTimes: String(values.RetryTimes),
+    RelayTTFTTimeout: String(values.RelayTTFTTimeout),
+    RelayTTFTModelTimeouts: values.RelayTTFTModelTimeouts,
     AutomaticRetryStatusCodes: values.AutomaticRetryStatusCodes,
     ...Object.fromEntries(
       Object.entries(values.channel_affinity_setting).map(([key, value]) => [

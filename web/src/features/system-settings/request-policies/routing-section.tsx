@@ -92,10 +92,17 @@ function RoutingPolicyEditor(props: { config: PolicyConfig }) {
     const delta = Object.fromEntries(
       Object.entries(next).filter(([key, value]) => {
         const previous = props.config.options[key]
-        if (key === 'channel_affinity_setting.rules') {
+        if (
+          key === 'channel_affinity_setting.rules' ||
+          key === 'RelayTTFTModelTimeouts'
+        ) {
           return (
             JSON.stringify(JSON.parse(value)) !==
-            JSON.stringify(JSON.parse(previous || '[]'))
+            JSON.stringify(
+              JSON.parse(
+                previous || (key === 'RelayTTFTModelTimeouts' ? '{}' : '[]')
+              )
+            )
           )
         }
         if (key === 'AutomaticRetryStatusCodes') {

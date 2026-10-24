@@ -222,6 +222,7 @@ docker compose logs -f new-api
 | `SQL_DSN` | 主数据库连接串；未设置时使用 SQLite |
 | `LOG_SQL_DSN` | 可选的独立日志数据库连接串 |
 | `REDIS_CONN_STRING` | Redis 连接串 |
+| `RELAY_TTFT_TIMEOUT` | 流式文本生成首 chunk 超时默认值，单位秒，默认 `30`，`0` 禁用；后台「会话与重试」保存的配置优先 |
 | `SESSION_SECRET` | 持久保存的鉴权密钥，所有节点必须一致 |
 | `CRYPTO_SECRET` | 默认使用 `SESSION_SECRET`；共享 Redis 的节点必须使用相同的有效值 |
 | `SESSION_COOKIE_SECURE` | HTTPS 控制台设为 `true`，启用 Secure 刷新 Cookie 和严格的刷新／退出来源校验 |
@@ -229,6 +230,10 @@ docker compose logs -f new-api
 | `TRUSTED_PROXIES` | 可信反向代理 IP/CIDR，或 `none`；按实际网络显式配置 |
 
 完整配置见[环境变量示例](./.env.example)、[环境变量文档](https://docs.newapi.ai/zh/docs/installation/config-maintenance/environment-variables)和[鉴权与登录会话说明](./docs/authentication.md)。容器变量应通过 Compose 的 `environment` 或 `env_file` 注入；只复制 `.env.example` 不会自动将变量传入容器。
+
+「会话与重试」支持首 chunk 超时的全局默认值与模型覆盖值，例如 `{"GLM-5.3":60,"slow-model":0}`，按客户端原始模型名精确匹配，未配置的模型继承默认值。计时从成功发送上游请求开始，覆盖等待响应头与首个响应体字节；供应商心跳、空行、角色或 usage 数据均算首 chunk，正常空返回沿用原处理。收到首字节后解除该限制，继续使用原有流式空闲超时与总超时；这些超时中先到期的仍会先终止请求。
+
+启用此策略时，首字节前暂停本地心跳，预读的 1 字节原样交给流处理器。超时取消上游并返回内部供应商状态 `499`（`upstream_first_chunk_timeout`），由已有会话、重试状态码、次数与渠道选择规则决定是否重试；客户端取消、响应已提交、已知可能产生副作用的 Responses 工具或会话请求不重试。取消不保证供应商停止计算或免除供应商侧费用。适用于公共 HTTP 请求入口的 Chat Completions、Completions、Messages、Responses 与 Gemini 流式生成；非流式、WebSocket、异步任务、音视频/图片生成及独立 SDK 请求路径不在本次范围内。
 
 正式部署时使用 HTTPS，并配置反向代理支持流式响应与 WebSocket 升级。持久化并备份数据库和挂载数据。多节点必须共用主数据库和鉴权密钥；独立 Redis 或内存限流器会按节点分别计数。不同拓扑下的会话传播行为见鉴权文档。
 

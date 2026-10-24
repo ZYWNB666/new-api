@@ -13,10 +13,12 @@ import (
 
 	common2 "github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/metrics"
 	"github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -549,11 +551,25 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 
 	var stopPinger context.CancelFunc
 	var pingerDone <-chan struct{}
+	var firstChunkTimeout time.Duration
 	if info.IsStream {
-		helper.SetEventStreamHeaders(c)
+		switch info.RelayMode {
+		case constant.RelayModeChatCompletions, constant.RelayModeCompletions, constant.RelayModeResponses, constant.RelayModeGemini:
+			firstChunkTimeout = model.CurrentRequestPolicy().FirstChunkTimeout(info.OriginModelName)
+		case constant.RelayModeUnknown:
+			// /v1/messages uses the Claude format without a distinct relay mode.
+			if info.RelayFormat == types.RelayFormatClaude {
+				firstChunkTimeout = model.CurrentRequestPolicy().FirstChunkTimeout(info.OriginModelName)
+			}
+		}
+	}
+	if info.IsStream {
+		if firstChunkTimeout == 0 {
+			helper.SetEventStreamHeaders(c)
+		}
 		// 处理流式请求的 ping 保活
 		generalSettings := operation_setting.GetGeneralSetting()
-		if generalSettings.PingIntervalEnabled && !info.DisablePing {
+		if firstChunkTimeout == 0 && generalSettings.PingIntervalEnabled && !info.DisablePing {
 			pingInterval := time.Duration(generalSettings.PingIntervalSeconds) * time.Second
 			stopPinger, pingerDone = startPingKeepAlive(c, pingInterval)
 			// 使用defer确保在任何情况下都能停止ping goroutine
@@ -567,14 +583,47 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
+	send := func(request *http.Request) (*http.Response, error) {
+		var response *http.Response
+		var requestErr error
+		if monitor := metrics.Current(); monitor != nil {
+			response, requestErr = monitor.DoProviderUpstream(&relayClient, request, info.ChannelId, info.ChannelType)
+		} else {
+			response, requestErr = relayClient.Do(request)
+		}
+		// Record the headers before first-chunk waiting or protocol handling,
+		// including error responses and attempts that later time out.
+		if response != nil && common2.GetEnvOrDefaultBool("LOG_REQUEST_HEADERS", false) {
+			prefix := fmt.Sprintf("provider response headers: channel_id=%d attempt=%d status=%d headers", info.ChannelId, info.RetryIndex+1, response.StatusCode)
+			logger.LogHTTPHeaders(c.Request.Context(), prefix, response.Header, "")
+		}
+		return response, requestErr
+	}
 	var resp *http.Response
-	if monitor := metrics.Current(); monitor != nil {
-		resp, err = monitor.DoProviderUpstream(&relayClient, req, info.ChannelId, info.ChannelType)
+	if firstChunkTimeout > 0 {
+		resp, err = awaitFirstChunk(c.Request.Context(), req, firstChunkTimeout, send)
 	} else {
-		resp, err = relayClient.Do(req)
+		resp, err = send(req)
 	}
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())
+		var upstreamError *types.NewAPIError
+		if errors.As(err, &upstreamError) && upstreamError.GetErrorCode() == types.ErrorCodeUpstreamFirstChunkTimeout {
+			// Stateful Responses and provider-executed tools may already have
+			// side effects before their first byte is returned. Do not replay them.
+			if request, ok := info.Request.(*dto.OpenAIResponsesRequest); ok {
+				unsafeReplay := len(request.Conversation) > 0 || request.PreviousResponseID != ""
+				for _, tool := range request.GetToolsMap() {
+					if tool["type"] != "function" && tool["type"] != "custom" {
+						unsafeReplay = true
+					}
+				}
+				if unsafeReplay {
+					types.ErrOptionWithSkipRetry()(upstreamError)
+				}
+			}
+			return nil, upstreamError
+		}
 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))
 	}
 	if resp == nil {

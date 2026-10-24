@@ -110,6 +110,10 @@ func InitEnv() {
 	SyncFrequency = GetEnvOrDefault("SYNC_FREQUENCY", 60)
 	BatchUpdateInterval = GetEnvOrDefault("BATCH_UPDATE_INTERVAL", 5)
 	RelayTimeout = GetEnvOrDefault("RELAY_TIMEOUT", 0)
+	RelayTTFTTimeout = GetEnvOrDefault("RELAY_TTFT_TIMEOUT", 30)
+	if RelayTTFTTimeout < 0 || int64(RelayTTFTTimeout) > math.MaxInt64/int64(time.Second) {
+		log.Fatal("RELAY_TTFT_TIMEOUT must be a non-negative number of seconds within time.Duration range")
+	}
 	RelayIdleConnTimeout = GetEnvOrDefault("RELAY_IDLE_CONN_TIMEOUT", 90)
 	RelayResponseHeaderTimeout = GetEnvOrDefault("RELAY_RESPONSE_HEADER_TIMEOUT", 1800)
 	RelayMaxIdleConns = GetEnvOrDefault("RELAY_MAX_IDLE_CONNS", 500)
