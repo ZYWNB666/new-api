@@ -75,9 +75,11 @@ type GeneralOpenAIRequest struct {
 	// Used by OpenAI to cache responses for similar requests to optimize your cache hit rates. Replaces the user field
 	PromptCacheKey       string          `json:"prompt_cache_key,omitempty"`
 	PromptCacheRetention json.RawMessage `json:"prompt_cache_retention,omitempty"`
-	LogitBias            json.RawMessage `json:"logit_bias,omitempty"`
-	Metadata             json.RawMessage `json:"metadata,omitempty"`
-	Prediction           json.RawMessage `json:"prediction,omitempty"`
+	// Kimi context cache write policy, including the requested 5m or 1h TTL.
+	PromptCacheOptions json.RawMessage `json:"prompt_cache_options,omitempty"`
+	LogitBias          json.RawMessage `json:"logit_bias,omitempty"`
+	Metadata           json.RawMessage `json:"metadata,omitempty"`
+	Prediction         json.RawMessage `json:"prediction,omitempty"`
 	// gemini
 	ExtraBody json.RawMessage `json:"extra_body,omitempty"`
 	//xai
