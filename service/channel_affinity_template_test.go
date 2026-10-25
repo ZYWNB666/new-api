@@ -10,15 +10,151 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/cachex"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
+	"github.com/samber/hot"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func automaticAffinityContextForTest(userID int, path, body string) *gin.Context {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	common.SetContextKey(c, constant.ContextKeyUserId, userID)
+	return c
+}
+
+func TestAutomaticChannelAffinity(t *testing.T) {
+	for _, useRedis := range []bool{false, true} {
+		t.Run(fmt.Sprintf("redis=%t", useRedis), func(t *testing.T) {
+			setting := operation_setting.GetChannelAffinitySetting()
+			previousSetting, previousCache := *setting, getChannelAffinityCache()
+			t.Cleanup(func() { *setting = previousSetting; channelAffinityCache = previousCache })
+			*setting = operation_setting.ChannelAffinitySetting{Enabled: true, SessionMode: "prefer", DefaultTTLSeconds: 600, MaxEntries: 100}
+			server := miniredis.RunT(t)
+			client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+			t.Cleanup(func() { require.NoError(t, client.Close()) })
+			channelAffinityCache = cachex.NewHybridCache[int](cachex.HybridCacheConfig[int]{
+				Namespace: cachex.Namespace(channelAffinityCacheNamespace), Redis: client, RedisCodec: cachex.IntCodec{},
+				RedisEnabled: func() bool { return useRedis },
+				Memory:       func() *hot.HotCache[string, int] { return hot.NewHotCache[string, int](hot.LRU, 100).Build() },
+			})
+			const initial = `{"messages":[{"role":"system","content":"PRIVATE_SYSTEM"},{"role":"user","content":"PRIVATE_FIRST_QUESTION"}],"tools":[{"type":"function","function":{"name":"lookup"}}],"prompt_cache_options":{"ttl":"1h"}}`
+			const continued = `{"tools":[{"function":{"name":"lookup"},"type":"function"}],"messages":[{"content":"PRIVATE_SYSTEM","role":"system"},{"content":"PRIVATE_FIRST_QUESTION","role":"user"},{"role":"assistant","content":"answer"},{"role":"user","content":"next question"}]}`
+			seed := automaticAffinityContextForTest(42, "/v1/chat/completions", initial)
+			_, found := GetPreferredChannelByAffinity(seed, "GLM-5.3", "default")
+			require.False(t, found)
+			meta, ok := getChannelAffinityMeta(seed)
+			require.True(t, ok)
+			assert.Equal(t, 3600, meta.TTLSeconds, "automatic bindings must cover 1h caches even with a 600s global TTL")
+			assert.Equal(t, "prefer", RequestPolicy(seed).SessionMode)
+			assert.NotContains(t, meta.CacheKey, "PRIVATE_")
+			RecordChannelAffinity(seed, 101)
+			followup := automaticAffinityContextForTest(42, "/v1/chat/completions", continued)
+			channelID, found := GetPreferredChannelByAffinity(followup, "GLM-5.3", "default")
+			require.True(t, found)
+			assert.Equal(t, 101, channelID, "additional turns and object key ordering must keep the binding")
+			RecordChannelAffinity(followup, 101)
+			decision := DecideRelayRetry(followup, types.NewErrorWithStatusCode(errors.New("first chunk timeout"), types.ErrorCodeUpstreamFirstChunkTimeout, 499), 1)
+			assert.Equal(t, "retry", decision.Action)
+			for _, tc := range []struct {
+				name, model, group, body string
+				userID                   int
+			}{
+				{name: "another user", userID: 43, model: "GLM-5.3", group: "default", body: continued},
+				{name: "another model", userID: 42, model: "kimi-3", group: "default", body: continued},
+				{name: "another group", userID: 42, model: "GLM-5.3", group: "other", body: continued},
+				{name: "changed system", userID: 42, model: "GLM-5.3", group: "default", body: strings.Replace(continued, "PRIVATE_SYSTEM", "changed", 1)},
+				{name: "changed first question", userID: 42, model: "GLM-5.3", group: "default", body: strings.Replace(continued, "PRIVATE_FIRST_QUESTION", "new conversation", 1)},
+				{name: "changed tools", userID: 42, model: "GLM-5.3", group: "default", body: strings.Replace(continued, "lookup", "another_tool", 1)},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					c := automaticAffinityContextForTest(tc.userID, "/v1/chat/completions", tc.body)
+					_, hit := GetPreferredChannelByAffinity(c, tc.model, tc.group)
+					assert.False(t, hit)
+				})
+			}
+			if useRedis {
+				assert.Equal(t, time.Hour, server.TTL(meta.CacheKey))
+				server.FastForward(11 * time.Minute)
+				c := automaticAffinityContextForTest(42, "/v1/chat/completions", continued)
+				_, hit := GetPreferredChannelByAffinity(c, "GLM-5.3", "default")
+				assert.True(t, hit, "binding survives beyond Magik's 600s default")
+			}
+			stats := GetChannelAffinityCacheStats()
+			assert.Greater(t, stats.ByRuleName[automaticAffinityRuleName], 0)
+			removed, err := ClearChannelAffinityCacheByRuleName(automaticAffinityRuleName)
+			require.NoError(t, err)
+			assert.Greater(t, removed, 0)
+		})
+	}
+}
+
+func TestAutomaticAffinityIdentityAndOptOut(t *testing.T) {
+	setting := operation_setting.GetChannelAffinitySetting()
+	previous := *setting
+	t.Cleanup(func() { *setting = previous })
+	*setting = operation_setting.ChannelAffinitySetting{Enabled: true, DefaultTTLSeconds: 3600, SessionMode: "prefer"}
+	for _, tc := range []struct {
+		name, path, body string
+		supported        bool
+	}{
+		{name: "OpenAI Chat", path: "/v1/chat/completions", body: `{"messages":[{"role":"user","content":"hi"}]}`, supported: true},
+		{name: "Claude Messages", path: "/v1/messages", body: `{"system":"system","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`, supported: true},
+		{name: "Responses string", path: "/v1/responses", body: `{"instructions":"system","input":"hi"}`, supported: true},
+		{name: "Responses messages", path: "/v1/responses", body: `{"input":[{"role":"user","content":[{"type":"input_text","text":"hi"}]}]}`, supported: true},
+		{name: "Gemini", path: "/v1beta/models/gemini:streamGenerateContent", body: `{"systemInstruction":{"parts":[{"text":"system"}]},"contents":[{"parts":[{"text":"hi"}]}]}`, supported: true},
+		{name: "missing first user", path: "/v1/chat/completions", body: `{"messages":[{"role":"system","content":"system"}]}`},
+		{name: "empty first user", path: "/v1/chat/completions", body: `{"messages":[{"role":"user","content":[]}]}`},
+		{name: "image task excluded", path: "/v1/images/generations", body: `{"prompt_cache_key":"fixed","messages":[{"role":"user","content":"hi"}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := automaticAffinityContextForTest(42, tc.path, tc.body)
+			_, _ = GetPreferredChannelByAffinity(c, "test-model", "default")
+			_, ok := getChannelAffinityMeta(c)
+			assert.Equal(t, tc.supported, ok)
+		})
+	}
+	first := automaticAffinityContextForTest(42, "/v1/chat/completions", `{"prompt_cache_key":"body-key","messages":[{"role":"user","content":"first"}]}`)
+	first.Request.Header.Set("X-Session-Id", "header-key")
+	second := automaticAffinityContextForTest(42, "/v1/chat/completions", `{"prompt_cache_key":"different","messages":[{"role":"user","content":"changed"}]}`)
+	second.Request.Header.Set("X-Session-Id", "header-key")
+	assert.Equal(t, automaticChannelAffinityKey(first, "GLM-5.3", "default"), automaticChannelAffinityKey(second, "GLM-5.3", "default"), "explicit headers take precedence over body and generated identities")
+	bodyFirst := automaticAffinityContextForTest(42, "/v1/chat/completions", `{"prompt_cache_key":"stable-body-key","messages":[{"role":"user","content":"one"}]}`)
+	bodySecond := automaticAffinityContextForTest(42, "/v1/chat/completions", `{"prompt_cache_key":"stable-body-key","messages":[{"role":"user","content":"two"}]}`)
+	assert.Equal(t, automaticChannelAffinityKey(bodyFirst, "GLM-5.3", "default"), automaticChannelAffinityKey(bodySecond, "GLM-5.3", "default"))
+	assert.Empty(t, automaticChannelAffinityKey(automaticAffinityContextForTest(0, "/v1/chat/completions", `{"input":"hi"}`), "GLM-5.3", "default"))
+	image1 := automaticAffinityContextForTest(42, "/v1/chat/completions", `{"messages":[{"role":"user","content":[{"type":"text","text":"describe"},{"type":"image_url","image_url":{"url":"https://example.com/a"}}]}]}`)
+	image2 := automaticAffinityContextForTest(42, "/v1/chat/completions", `{"messages":[{"role":"user","content":[{"type":"text","text":"describe"},{"type":"image_url","image_url":{"url":"https://example.com/b"}}]}]}`)
+	assert.NotEqual(t, automaticChannelAffinityKey(image1, "GLM-5.3", "default"), automaticChannelAffinityKey(image2, "GLM-5.3", "default"))
+	for _, mode := range []string{"disabled", "global off", "rule off"} {
+		t.Run(mode, func(t *testing.T) {
+			*setting = operation_setting.ChannelAffinitySetting{Enabled: true, SessionMode: "prefer"}
+			switch mode {
+			case "disabled":
+				setting.Enabled = false
+			case "global off":
+				setting.SessionMode = "off"
+			case "rule off":
+				setting.Rules = []operation_setting.ChannelAffinityRule{{Name: "disabled GLM", ModelRegex: []string{"^GLM"}, SessionMode: "off"}}
+			}
+			c := automaticAffinityContextForTest(42, "/v1/chat/completions", `{"messages":[{"role":"user","content":"hi"}]}`)
+			_, _ = GetPreferredChannelByAffinity(c, "GLM-5.3", "default")
+			RecordChannelAffinity(c, 999)
+			_, found := GetPreferredChannelByAffinity(automaticAffinityContextForTest(42, "/v1/chat/completions", `{"messages":[{"role":"user","content":"hi"}]}`), "GLM-5.3", "default")
+			assert.False(t, found)
+		})
+	}
+}
 
 func buildChannelAffinityTemplateContextForTest(meta channelAffinityMeta) *gin.Context {
 	rec := httptest.NewRecorder()
@@ -230,6 +366,8 @@ func TestGetPreferredChannelByAffinity_RequestHeaderKeySource(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(rec)
 	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	ctx.Request.Header.Set("X-Affinity-Key", affinityValue)
+	ctx.Request.Header.Set("X-Session-Id", "automatic-fallback-must-not-win")
+	common.SetContextKey(ctx, constant.ContextKeyUserId, 42)
 
 	channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default")
 	require.True(t, found)

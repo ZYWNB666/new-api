@@ -125,7 +125,7 @@ func GetChannelAffinityCacheStats() ChannelAffinityCacheStats {
 	mainCap, _ := cache.Capacity()
 	mainAlgo, _ := cache.Algorithm()
 
-	rules := setting.Rules
+	rules := channelAffinityRules(setting)
 	ruleByName := make(map[string]operation_setting.ChannelAffinityRule, len(rules))
 	for _, r := range rules {
 		name := strings.TrimSpace(r.Name)
@@ -224,8 +224,9 @@ func ClearChannelAffinityCacheByRuleName(ruleName string) (int, error) {
 	}
 
 	var matchedRule *operation_setting.ChannelAffinityRule
-	for i := range setting.Rules {
-		r := &setting.Rules[i]
+	rules := channelAffinityRules(setting)
+	for i := range rules {
+		r := &rules[i]
 		if strings.TrimSpace(r.Name) != ruleName {
 			continue
 		}
@@ -562,7 +563,7 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 		userAgent = c.Request.UserAgent()
 	}
 
-	for _, rule := range setting.Rules {
+	for _, rule := range channelAffinityRules(setting) {
 		if !matchAnyRegexCached(rule.ModelRegex, modelName) {
 			continue
 		}
@@ -575,13 +576,23 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 		var affinityValue string
 		var usedSource operation_setting.ChannelAffinityKeySource
 		for _, src := range rule.KeySources {
-			affinityValue = extractChannelAffinityValue(c, src)
+			if src.Type == "automatic" {
+				affinityValue = automaticChannelAffinityKey(c, modelName, usingGroup)
+			} else {
+				affinityValue = extractChannelAffinityValue(c, src)
+			}
 			if affinityValue != "" {
 				usedSource = src
 				break
 			}
 		}
 		if affinityValue == "" {
+			// Explicit opt-outs still stop fallback when no session key exists.
+			if mode, source := EffectiveSessionMode(setting, rule); mode == "off" {
+				state.SessionMode, state.SessionModeSource, state.RuleName = mode, source, rule.Name
+				state.AddEvent(PolicyEvent{Decision: PolicyDecision{Action: "match", Reason: "session_rule_matched", Source: "session_rule"}})
+				return 0, false
+			}
 			continue
 		}
 		if rule.ValueRegex != "" && !matchAnyRegexCached([]string{rule.ValueRegex}, affinityValue) {

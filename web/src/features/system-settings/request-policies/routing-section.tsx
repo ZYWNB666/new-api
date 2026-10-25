@@ -182,7 +182,9 @@ function AffinitySettings() {
   return (
     <SettingsCard
       title={t('Session defaults')}
-      description={t('Rules can inherit or override these defaults.')}
+      description={t(
+        'Configured session keys take precedence. Otherwise, a routing key is generated from the initial conversation. Automatic bindings follow the global session mode and last at least one hour.'
+      )}
       className='shadow-none'
     >
       <FormField

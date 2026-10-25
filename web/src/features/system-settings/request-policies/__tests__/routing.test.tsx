@@ -59,6 +59,7 @@ it('saves model first chunk timeouts with the existing retry and session setting
     name: 'Upstream first chunk timeout (seconds)',
   })
   expect(screen.getByText(/Starts before the upstream HTTP call/)).toBeVisible()
+  expect(screen.getByText(/Automatic bindings follow the global session mode/)).toBeVisible()
   fireEvent.change(timeout, { target: { value: '45' } })
   const overrides = screen.getByRole('group', {
     name: 'Model first chunk timeouts',

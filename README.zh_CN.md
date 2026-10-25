@@ -237,6 +237,10 @@ docker compose logs -f new-api
 
 启用此策略时，首字节前暂停本地心跳，预读的 1 字节原样交给流处理器。超时取消上游并返回内部供应商状态 `499`（`upstream_first_chunk_timeout`），由已有会话、重试状态码、次数与渠道选择规则决定是否重试；客户端取消、响应已提交、已知可能产生副作用的 Responses 工具或会话请求不重试。取消不保证供应商停止计算或免除供应商侧费用。适用于公共 HTTP 请求入口的 Chat Completions、Completions、Messages、Responses 与 Gemini 流式生成；非流式、WebSocket、异步任务、音视频/图片生成及独立 SDK 请求路径不在本次范围内。
 
+启用「会话与重试」中的会话亲和后，现有手工规则优先；未提取到匹配会话键时，文本 HTTP 接口使用内置 `automatic session` 兜底规则。它优先读取 `X-Session-Id`、`X-Conversation-Id` 等会话头，其次读取 `prompt_cache_key`、`metadata.session_id`、`metadata.conversation_id`、`session_id` 或 Responses conversation 标识；仍无标识时，对 system/developer 提示词、工具定义和第一条用户消息生成 SHA-256 路由指纹。支持 Chat Completions、Messages、Responses、Gemini；后续追加轮次不改变指纹，JSON 对象键顺序不影响结果，多模态首条消息的图片等内容也参与指纹。用户、请求模型和分组相互隔离，原始提示词与会话标识不写入自动亲和缓存键或日志。无首条用户内容且无显式标识的请求、独立任务和 WebSocket 不自动生成绑定。
+
+自动规则继承全局会话模式，遵守全局禁用和匹配规则的显式关闭；成功请求沿用现有绑定更新逻辑。自动绑定 TTL 为 `max(3600, 默认亲和 TTL)` 秒，并随成功请求刷新，因此 Kimi 的 1h 缓存不会因采用 Magik 的 600 秒默认值而提前失去绑定。此 TTL 是网关路由记录的保留时间，不会修改供应商 `prompt_cache_options.ttl` 或开启供应商缓存；原有手工规则的 TTL 不变，使用 1h 缓存时应将相应手工规则配置为至少 3600 秒。Redis/内存缓存仍可能因容量、清空或故障提前丢失绑定。客户端截断首轮历史、改变 system/工具/首条消息会产生新指纹；同用户同模型同分组、相同初始内容的独立会话会共享路由绑定。绑定到渠道不保证渠道内部供应商账户保持不变。
+
 正式部署时使用 HTTPS，并配置反向代理支持流式响应与 WebSocket 升级。持久化并备份数据库和挂载数据。多节点必须共用主数据库和鉴权密钥；独立 Redis 或内存限流器会按节点分别计数。不同拓扑下的会话传播行为见鉴权文档。
 
 从[发布页](https://github.com/QuantumNous/new-api/releases)选择明确的镜像版本，阅读升级说明并先备份再升级。`latest` 会随发布构建变化；已有实例应按实际版本评估迁移与兼容性。
