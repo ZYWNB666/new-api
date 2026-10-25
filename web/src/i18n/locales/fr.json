@@ -5721,7 +5721,7 @@
     "Stream tokens incrementally as they are generated": "Diffuser les jetons au fur et à mesure de leur génération",
     "Stream tokens via Server-Sent Events": "Diffuser les jetons via Server-Sent Events",
     "Streaming": "Streaming",
-    "Streaming only. Starts after the request is sent and ends on the first response body byte. 0 disables it. Local heartbeats wait until then; timeouts use status 499 and the existing session and retry policy.": "Flux uniquement. Le délai commence après l’envoi de la requête et prend fin au premier octet du corps de réponse. 0 le désactive. Les signaux de maintien locaux attendent ce premier octet ; les expirations utilisent le statut 499 et la politique de session et de nouvelle tentative existante.",
+    "Streaming only. Starts before the upstream HTTP call and includes connection, TLS and request upload until the first response body byte. 0 disables it. Local heartbeats wait until then; timeouts use status 499 and the existing session and retry policy.": "Uniquement en streaming. Le délai commence avant l’appel HTTP amont et couvre la connexion, TLS et l’envoi de la requête jusqu’au premier octet du corps de réponse. 0 le désactive. Les signaux de maintien locaux attendent cet octet ; les expirations utilisent le statut 499 et la politique existante de session et de nouvelle tentative.",
     "String Replace": "Remplacement de texte",
     "Strip {{affix}}": "Supprimer {{affix}}",
     "Strip prefix": "Supprimer le préfixe",

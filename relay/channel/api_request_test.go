@@ -3,9 +3,11 @@ package channel
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httptrace"
@@ -105,7 +107,9 @@ func TestDoRequestProviderResponseHeaders(t *testing.T) {
 				}
 				original := headers.Clone()
 				client.Transport = firstChunkTransport(func(r *http.Request) (*http.Response, error) {
-					httptrace.ContextClientTrace(r.Context()).WroteRequest(httptrace.WroteRequestInfo{})
+					if trace := httptrace.ContextClientTrace(r.Context()); trace != nil && trace.WroteRequest != nil {
+						trace.WroteRequest(httptrace.WroteRequestInfo{})
+					}
 					delay := time.Duration(0)
 					if tc.timeout {
 						delay = 3 * time.Second
@@ -135,7 +139,12 @@ func TestDoRequestProviderResponseHeaders(t *testing.T) {
 					require.NoError(t, response.Body.Close())
 				}
 				assert.Equal(t, original, headers, "logging must not change the provider response")
-				line := output.String()
+				var line string
+				for entry := range strings.SplitSeq(output.String(), "\n") {
+					if strings.Contains(entry, "provider response headers:") {
+						line += entry + "\n"
+					}
+				}
 				if tc.enabled != "true" {
 					assert.Empty(t, line)
 					return
@@ -198,7 +207,9 @@ func TestUpstreamFirstChunkTimeout(t *testing.T) {
 				var body *firstChunkFixtureBody
 				send := func(r *http.Request) (*http.Response, error) {
 					upstreamCtx = r.Context()
-					httptrace.ContextClientTrace(r.Context()).WroteRequest(httptrace.WroteRequestInfo{})
+					if trace := httptrace.ContextClientTrace(r.Context()); trace != nil && trace.WroteRequest != nil {
+						trace.WroteRequest(httptrace.WroteRequestInfo{})
+					}
 					if tc.noHeaders {
 						<-r.Context().Done()
 						return nil, r.Context().Err()
@@ -251,19 +262,26 @@ func TestUpstreamFirstChunkTimeout(t *testing.T) {
 	}
 }
 
-func TestFirstChunkTimerStartsAfterSuccessfulUpload(t *testing.T) {
+func TestFirstChunkTimerIncludesConnectionAndUpload(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "http://provider.test", nil)
+		started := time.Now()
 		resp, err := awaitFirstChunk(context.Background(), req, time.Second, func(r *http.Request) (*http.Response, error) {
-			trace := httptrace.ContextClientTrace(r.Context())
-			trace.WroteRequest(httptrace.WroteRequestInfo{Err: errors.New("failed write")})
-			time.Sleep(3 * time.Second)
-			assert.NoError(t, r.Context().Err(), "upload time is not part of this timeout")
-			trace.WroteRequest(httptrace.WroteRequestInfo{})
-			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("first"))}, nil
+			// No WroteRequest event: the transport is still connecting or uploading.
+			select {
+			case <-r.Context().Done():
+				return nil, r.Context().Err()
+			case <-time.After(3 * time.Second):
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("late"))}, nil
+			}
 		})
-		require.NoError(t, err)
-		require.NoError(t, resp.Body.Close())
+		if resp != nil {
+			defer resp.Body.Close()
+		}
+		var apiError *types.NewAPIError
+		require.ErrorAs(t, err, &apiError)
+		assert.Equal(t, types.ErrorCodeUpstreamFirstChunkTimeout, apiError.GetErrorCode())
+		assert.Equal(t, time.Second, time.Since(started))
 	})
 }
 
@@ -312,13 +330,194 @@ func TestFirstChunkTimeoutCancelsHTTPTransport(t *testing.T) {
 	}
 }
 
+func TestFirstChunkTimeoutCancelsTLSHandshake(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+	closed := make(chan struct{})
+	go func() {
+		defer close(closed)
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer conn.Close()
+		// Consume ClientHello without answering: TLS must be canceled by TTFT.
+		_, _ = io.Copy(io.Discard, conn)
+	}()
+	transport := &http.Transport{TLSHandshakeTimeout: 5 * time.Second}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: 5 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, "https://"+listener.Addr().String(), nil)
+	require.NoError(t, err)
+	response, err := awaitFirstChunk(context.Background(), req, 100*time.Millisecond, client.Do)
+	if response != nil {
+		defer response.Body.Close()
+	}
+	var apiError *types.NewAPIError
+	require.ErrorAs(t, err, &apiError)
+	assert.Equal(t, types.ErrorCodeUpstreamFirstChunkTimeout, apiError.GetErrorCode())
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("TLS connection was not closed after first chunk timeout")
+	}
+}
+
+type firstChunkSlowLogWriter struct{ io.Writer }
+
+func (w firstChunkSlowLogWriter) Write(data []byte) (int, error) {
+	time.Sleep(3 * time.Second) // Virtual time inside synctest.
+	return w.Writer.Write(data)
+}
+
+func TestDoRequestPhaseTimings(t *testing.T) {
+	t.Setenv("LOG_REQUEST_HEADERS", "false")
+	service.InitHttpClient()
+	client := service.GetHttpClient()
+	previousTransport, previousTimeout := client.Transport, common.RelayTTFTTimeout
+	t.Cleanup(func() { client.Transport = previousTransport; common.RelayTTFTTimeout = previousTimeout })
+	common.RelayTTFTTimeout = 10
+	for _, tc := range []struct {
+		name, failure string
+		reused        bool
+		slowLog       bool
+	}{
+		{name: "fresh connection"}, {name: "reused connection", reused: true},
+		{name: "slow log does not consume TTFT budget", reused: true, slowLog: true},
+		{name: "first chunk timeout during TLS", failure: "first_chunk_timeout"},
+		{name: "client cancellation during TLS", failure: "client_canceled"},
+		{name: "network timeout during TLS", failure: "network_timeout"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				var output bytes.Buffer
+				previousWriter := gin.DefaultWriter
+				gin.DefaultWriter = &output
+				if tc.slowLog {
+					gin.DefaultWriter = firstChunkSlowLogWriter{Writer: &output}
+				}
+				t.Cleanup(func() { gin.DefaultWriter = previousWriter })
+				client.Transport = firstChunkTransport(func(r *http.Request) (*http.Response, error) {
+					trace := httptrace.ContextClientTrace(r.Context())
+					trace.GetConn("do-not-log-host")
+					if !tc.reused {
+						trace.DNSStart(httptrace.DNSStartInfo{})
+						time.Sleep(100 * time.Millisecond)
+						trace.DNSDone(httptrace.DNSDoneInfo{})
+						trace.ConnectStart("tcp", "do-not-log-address")
+						time.Sleep(200 * time.Millisecond)
+						trace.ConnectDone("tcp", "do-not-log-address", nil)
+						trace.TLSHandshakeStart()
+						if tc.failure != "" {
+							if tc.failure == "network_timeout" {
+								return nil, context.DeadlineExceeded
+							}
+							<-r.Context().Done()
+							trace.TLSHandshakeDone(tls.ConnectionState{}, r.Context().Err())
+							return nil, r.Context().Err()
+						}
+						time.Sleep(300 * time.Millisecond)
+						trace.TLSHandshakeDone(tls.ConnectionState{}, nil)
+					}
+					trace.GotConn(httptrace.GotConnInfo{Reused: tc.reused})
+					time.Sleep(400 * time.Millisecond)
+					trace.WroteRequest(httptrace.WroteRequestInfo{})
+					time.Sleep(500 * time.Millisecond)
+					return &http.Response{StatusCode: 200, Header: make(http.Header), Body: &firstChunkFixtureBody{
+						ctx: r.Context(), delay: 600 * time.Millisecond, reader: strings.NewReader("do-not-log-body"),
+					}}, nil
+				})
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+				common.RelayTTFTTimeout = 10
+				if tc.slowLog {
+					common.RelayTTFTTimeout = 2
+				}
+				if tc.failure == "first_chunk_timeout" {
+					common.RelayTTFTTimeout = 1
+				}
+				if tc.failure == "client_canceled" {
+					ctx, cancel := context.WithCancel(c.Request.Context())
+					defer cancel()
+					c.Request = c.Request.WithContext(ctx)
+					time.AfterFunc(time.Second, cancel)
+				}
+				req := httptest.NewRequest(http.MethodPost, "https://provider.test?key=do-not-log-query", nil)
+				req.RequestURI = ""
+				info := &relaycommon.RelayInfo{IsStream: true, RelayMode: relayconstant.RelayModeChatCompletions, RetryIndex: 2, ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 7}}
+				response, err := doRequest(c, req, info)
+				if tc.failure != "" {
+					require.Error(t, err)
+					assert.Nil(t, response)
+					var timingLine string
+					for line := range strings.SplitSeq(output.String(), "\n") {
+						if strings.Contains(line, "upstream timing:") {
+							timingLine = line
+						}
+					}
+					require.NotEmpty(t, timingLine)
+					assert.NotContains(t, timingLine, "do-not-log-")
+					_, raw, ok := strings.Cut(timingLine, "upstream timing: ")
+					require.True(t, ok)
+					var record map[string]any
+					require.NoError(t, common.UnmarshalJsonStr(raw, &record))
+					assert.Equal(t, tc.failure, record["outcome"])
+					assert.Equal(t, "tls_handshake", record["phase"])
+					assert.Equal(t, 7.0, record["channel_id"])
+					assert.Equal(t, 3.0, record["attempt"])
+					return
+				}
+				require.NoError(t, err)
+				data, err := io.ReadAll(response.Body)
+				require.NoError(t, err)
+				assert.Equal(t, "do-not-log-body", string(data))
+				require.NoError(t, response.Body.Close())
+				line := output.String()
+				require.Equal(t, 1, strings.Count(line, "upstream timing:"))
+				assert.NotContains(t, line, "do-not-log-")
+				_, raw, ok := strings.Cut(line, "upstream timing: ")
+				require.True(t, ok)
+				var record struct {
+					ChannelID  int                `json:"channel_id"`
+					Attempt    int                `json:"attempt"`
+					Outcome    string             `json:"outcome"`
+					Reused     bool               `json:"connection_reused"`
+					Durations  map[string]float64 `json:"durations_ms"`
+					Incomplete map[string]bool    `json:"incomplete_phases"`
+				}
+				require.NoError(t, common.UnmarshalJsonStr(strings.TrimSpace(raw), &record))
+				assert.Equal(t, 7, record.ChannelID)
+				assert.Equal(t, 3, record.Attempt)
+				assert.Equal(t, "first_chunk", record.Outcome)
+				assert.Equal(t, tc.reused, record.Reused)
+				assert.Empty(t, record.Incomplete)
+				assert.Equal(t, 400.0, record.Durations["request_write"])
+				assert.Equal(t, 500.0, record.Durations["response_headers"])
+				assert.Equal(t, 600.0, record.Durations["first_body_wait"])
+				if tc.reused {
+					assert.NotContains(t, record.Durations, "tls_handshake")
+					assert.NotContains(t, record.Durations, "dns")
+				} else {
+					assert.Equal(t, 100.0, record.Durations["dns"])
+					assert.Equal(t, 200.0, record.Durations["tcp_connect"])
+					assert.Equal(t, 300.0, record.Durations["tls_handshake"])
+					assert.Equal(t, 600.0, record.Durations["connection_acquire"])
+				}
+			})
+		})
+	}
+}
+
 func TestFirstChunkAndTimeoutAtSameDeadline(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "http://provider.test", nil)
 		var upstreamCtx context.Context
 		resp, err := awaitFirstChunk(context.Background(), req, time.Second, func(r *http.Request) (*http.Response, error) {
 			upstreamCtx = r.Context()
-			httptrace.ContextClientTrace(r.Context()).WroteRequest(httptrace.WroteRequestInfo{})
+			if trace := httptrace.ContextClientTrace(r.Context()); trace != nil && trace.WroteRequest != nil {
+				trace.WroteRequest(httptrace.WroteRequestInfo{})
+			}
 			return &http.Response{StatusCode: 200, Body: &firstChunkFixtureBody{ctx: r.Context(), delay: time.Second, reader: strings.NewReader("first")}}, nil
 		})
 		if err != nil {
@@ -339,7 +538,9 @@ func TestFirstChunkRespectsExistingClientTimeout(t *testing.T) {
 		client := &http.Client{
 			Timeout: time.Second,
 			Transport: firstChunkTransport(func(r *http.Request) (*http.Response, error) {
-				httptrace.ContextClientTrace(r.Context()).WroteRequest(httptrace.WroteRequestInfo{})
+				if trace := httptrace.ContextClientTrace(r.Context()); trace != nil && trace.WroteRequest != nil {
+					trace.WroteRequest(httptrace.WroteRequestInfo{})
+				}
 				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: &firstChunkFixtureBody{
 					ctx: r.Context(), delay: 10 * time.Second, reader: strings.NewReader("late"),
 				}}, nil
@@ -442,7 +643,9 @@ func TestDoRequestFirstChunkPolicyAndRetrySafety(t *testing.T) {
 					assert.Equal(t, "attempt_budget_exhausted", service.DecideRelayRetry(c, apiError, 0).Reason)
 					// A newly selected channel starts a fresh attempt and sends only its own bytes.
 					client.Transport = firstChunkTransport(func(r *http.Request) (*http.Response, error) {
-						httptrace.ContextClientTrace(r.Context()).WroteRequest(httptrace.WroteRequestInfo{})
+						if trace := httptrace.ContextClientTrace(r.Context()); trace != nil && trace.WroteRequest != nil {
+							trace.WroteRequest(httptrace.WroteRequestInfo{})
+						}
 						return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("new channel")), Header: make(http.Header)}, nil
 					})
 					retryReq, retryErr := http.NewRequest(http.MethodPost, "http://second-provider.test", strings.NewReader("{}"))

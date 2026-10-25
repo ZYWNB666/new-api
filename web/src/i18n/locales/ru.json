@@ -5721,7 +5721,7 @@
     "Stream tokens incrementally as they are generated": "Передавать токены по мере их генерации",
     "Stream tokens via Server-Sent Events": "Стримить токены через Server-Sent Events",
     "Streaming": "Стриминг",
-    "Streaming only. Starts after the request is sent and ends on the first response body byte. 0 disables it. Local heartbeats wait until then; timeouts use status 499 and the existing session and retry policy.": "Только для потоковых запросов. Отсчёт начинается после отправки запроса и заканчивается при получении первого байта тела ответа. 0 отключает ограничение. До этого локальные сигналы поддержания соединения не отправляются; тайм-ауты обрабатываются со статусом 499 по существующей политике сессий и повторных попыток.",
+    "Streaming only. Starts before the upstream HTTP call and includes connection, TLS and request upload until the first response body byte. 0 disables it. Local heartbeats wait until then; timeouts use status 499 and the existing session and retry policy.": "Только для потоковых запросов. Отсчёт начинается перед HTTP-вызовом к поставщику и включает соединение, TLS и отправку запроса до первого байта тела ответа. 0 отключает тайм-аут. До этого локальные сигналы поддержания соединения не отправляются; при тайм-ауте применяется статус 499 и действующая политика сеансов и повторов.",
     "String Replace": "Замена строки",
     "Strip {{affix}}": "Убрать {{affix}}",
     "Strip prefix": "Убрать префикс",

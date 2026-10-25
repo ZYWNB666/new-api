@@ -231,7 +231,9 @@ docker compose logs -f new-api
 
 完整配置见[环境变量示例](./.env.example)、[环境变量文档](https://docs.newapi.ai/zh/docs/installation/config-maintenance/environment-variables)和[鉴权与登录会话说明](./docs/authentication.md)。容器变量应通过 Compose 的 `environment` 或 `env_file` 注入；只复制 `.env.example` 不会自动将变量传入容器。
 
-「会话与重试」支持首 chunk 超时的全局默认值与模型覆盖值，例如 `{"GLM-5.3":60,"slow-model":0}`，按客户端原始模型名精确匹配，未配置的模型继承默认值。计时从成功发送上游请求开始，覆盖等待响应头与首个响应体字节；供应商心跳、空行、角色或 usage 数据均算首 chunk，正常空返回沿用原处理。收到首字节后解除该限制，继续使用原有流式空闲超时与总超时；这些超时中先到期的仍会先终止请求。
+「会话与重试」支持首 chunk 超时的全局默认值与模型覆盖值，例如 `{"GLM-5.3":60,"slow-model":0}`，按客户端原始模型名精确匹配，未配置的模型继承默认值。计时从调用上游 HTTP 客户端前开始，覆盖等待连接、DNS、TCP/TLS 握手、请求发送、等待响应头与首个响应体字节；供应商心跳、空行、角色或 usage 数据均算首 chunk，正常空返回沿用原处理。收到首字节后解除该限制，继续使用原有流式空闲超时与总超时；这些超时中先到期的仍会先终止请求。
+
+通用 HTTP 转发路径会为每次上游尝试输出一条 `upstream timing:` 日志，通过请求 ID、`channel_id` 和 `attempt` 关联。`durations_ms` 记录 `connection_acquire`（获取连接，包含建连）、`dns`、`tcp_connect`、`tls_handshake`、`request_write`、`response_headers`（请求写完到响应头完整返回）和 `first_body_wait`（响应头返回到首个正文字节）。`elapsed_ms` 为本次 HTTP 调用到首字节或失败的总耗时，不是完整生成耗时。连接复用时未发生的阶段省略；阶段窗口可能重叠，不能直接相加。`incomplete_phases` 标记失败时尚未结束的阶段；`outcome` 区分首字节、空响应、首 chunk 超时、客户端取消和网络错误。日志不记录 URL、正文、凭据或原始错误文本。SDK 与独立任务 HTTP 路径不在本次日志覆盖范围内。
 
 启用此策略时，首字节前暂停本地心跳，预读的 1 字节原样交给流处理器。超时取消上游并返回内部供应商状态 `499`（`upstream_first_chunk_timeout`），由已有会话、重试状态码、次数与渠道选择规则决定是否重试；客户端取消、响应已提交、已知可能产生副作用的 Responses 工具或会话请求不重试。取消不保证供应商停止计算或免除供应商侧费用。适用于公共 HTTP 请求入口的 Chat Completions、Completions、Messages、Responses 与 Gemini 流式生成；非流式、WebSocket、异步任务、音视频/图片生成及独立 SDK 请求路径不在本次范围内。
 

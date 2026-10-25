@@ -5721,7 +5721,7 @@
     "Stream tokens incrementally as they are generated": "在生成過程中按 token 逐步串流返回",
     "Stream tokens via Server-Sent Events": "透過 SSE 串流返回 token",
     "Streaming": "串流輸出",
-    "Streaming only. Starts after the request is sent and ends on the first response body byte. 0 disables it. Local heartbeats wait until then; timeouts use status 499 and the existing session and retry policy.": "僅限串流請求。從請求成功傳送到收到首個回應本文位元組計時，0 表示停用。此前暫停本機心跳；逾時以狀態碼 499 交由現有工作階段與重試策略處理。",
+    "Streaming only. Starts before the upstream HTTP call and includes connection, TLS and request upload until the first response body byte. 0 disables it. Local heartbeats wait until then; timeouts use status 499 and the existing session and retry policy.": "僅適用於串流請求。從呼叫上游 HTTP 用戶端前開始計時，包含連線、TLS 與請求傳送，直到首個回應本文位元組。0 表示停用；此前不傳送本機心跳，逾時記為 499，並沿用現有工作階段與重試策略。",
     "String Replace": "字串替換",
     "Strip {{affix}}": "移除 {{affix}}",
     "Strip prefix": "移除前綴",

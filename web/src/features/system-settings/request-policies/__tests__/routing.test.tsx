@@ -58,6 +58,7 @@ it('saves model first chunk timeouts with the existing retry and session setting
   const timeout = await screen.findByRole('spinbutton', {
     name: 'Upstream first chunk timeout (seconds)',
   })
+  expect(screen.getByText(/Starts before the upstream HTTP call/)).toBeVisible()
   fireEvent.change(timeout, { target: { value: '45' } })
   const overrides = screen.getByRole('group', {
     name: 'Model first chunk timeouts',

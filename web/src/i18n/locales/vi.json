@@ -5721,7 +5721,7 @@
     "Stream tokens incrementally as they are generated": "Truyền dần token khi được tạo",
     "Stream tokens via Server-Sent Events": "Truyền token qua Server-Sent Events",
     "Streaming": "Truyền liên tục",
-    "Streaming only. Starts after the request is sent and ends on the first response body byte. 0 disables it. Local heartbeats wait until then; timeouts use status 499 and the existing session and retry policy.": "Chỉ áp dụng cho yêu cầu truyền luồng. Tính từ khi gửi yêu cầu thành công đến byte đầu tiên của phần thân phản hồi. 0 để tắt. Tín hiệu giữ kết nối cục bộ chờ đến lúc đó; khi hết thời gian, dùng mã 499 và chính sách phiên, thử lại hiện có.",
+    "Streaming only. Starts before the upstream HTTP call and includes connection, TLS and request upload until the first response body byte. 0 disables it. Local heartbeats wait until then; timeouts use status 499 and the existing session and retry policy.": "Chỉ áp dụng cho yêu cầu truyền luồng. Bắt đầu tính trước lệnh gọi HTTP đến nhà cung cấp, bao gồm kết nối, TLS và gửi yêu cầu cho đến byte đầu tiên của nội dung phản hồi. 0 để tắt. Chưa gửi nhịp giữ kết nối cục bộ trước thời điểm đó; khi hết thời gian chờ, dùng mã 499 và chính sách phiên, thử lại hiện có.",
     "String Replace": "Thay thế chuỗi",
     "Strip {{affix}}": "Bỏ {{affix}}",
     "Strip prefix": "Bỏ tiền tố",

@@ -5721,7 +5721,7 @@
     "Stream tokens incrementally as they are generated": "トークンを生成と同時にストリーミング",
     "Stream tokens via Server-Sent Events": "Server-Sent Events でトークンをストリーミング",
     "Streaming": "ストリーミング",
-    "Streaming only. Starts after the request is sent and ends on the first response body byte. 0 disables it. Local heartbeats wait until then; timeouts use status 499 and the existing session and retry policy.": "ストリーミングのみ。リクエスト送信完了からレスポンス本文の最初のバイト受信までを計測します。0 で無効になります。それまではローカルのハートビートを送信しません。タイムアウトはステータス 499 として既存のセッションと再試行ポリシーで処理されます。",
+    "Streaming only. Starts before the upstream HTTP call and includes connection, TLS and request upload until the first response body byte. 0 disables it. Local heartbeats wait until then; timeouts use status 499 and the existing session and retry policy.": "ストリーミングのみ。上流への HTTP 呼び出し前から計測し、接続、TLS、リクエスト送信を含め、レスポンス本文の最初のバイトで終了します。0 で無効になります。それまではローカルのハートビートを送信しません。タイムアウトにはステータス 499 と既存のセッション・再試行ポリシーを使用します。",
     "String Replace": "文字列置換",
     "Strip {{affix}}": "{{affix}} を削除",
     "Strip prefix": "プレフィックスを削除",

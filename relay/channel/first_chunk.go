@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/http/httptrace"
 	"sync"
 	"time"
 
@@ -39,30 +38,18 @@ func awaitFirstChunk(clientContext context.Context, req *http.Request, timeout t
 		cancel(clientContext.Err())
 	}
 	var mu sync.Mutex
-	var timer *time.Timer
 	finished := false
-	trace := &httptrace.ClientTrace{
-		WroteRequest: func(written httptrace.WroteRequestInfo) {
-			if written.Err != nil {
-				return
-			}
-			mu.Lock()
-			defer mu.Unlock()
-			// Transport-level transparent retries share this attempt's timer.
-			if finished || timer != nil {
-				return
-			}
-			timer = time.AfterFunc(timeout, func() {
-				mu.Lock()
-				defer mu.Unlock()
-				if !finished {
-					finished = true
-					cancel(errFirstChunkTimeout)
-				}
-			})
-		},
-	}
-	resp, err := send(req.WithContext(httptrace.WithClientTrace(ctx, trace)))
+	// Cover connection acquisition, DNS, TCP/TLS and upload as well as the
+	// response wait. Transparent transport retries share this attempt's budget.
+	timer := time.AfterFunc(timeout, func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if !finished {
+			finished = true
+			cancel(errFirstChunkTimeout)
+		}
+	})
+	resp, err := send(req.WithContext(ctx))
 	var first [1]byte
 	var n int
 	if err == nil && resp != nil {
@@ -73,9 +60,7 @@ func awaitFirstChunk(clientContext context.Context, req *http.Request, timeout t
 	}
 	mu.Lock()
 	finished = true
-	if timer != nil {
-		timer.Stop()
-	}
+	timer.Stop()
 	cause := context.Cause(ctx)
 	mu.Unlock()
 	if cause == nil {

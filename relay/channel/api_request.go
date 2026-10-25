@@ -583,13 +583,21 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		}
 	}
 
+	var timing *upstreamTiming
 	send := func(request *http.Request) (*http.Response, error) {
+		attemptTiming, tracedRequest := newUpstreamTiming(c.Request.Context(), request, info.ChannelId, info.RetryIndex+1, info.IsStream, firstChunkTimeout > 0)
+		timing, request = attemptTiming, tracedRequest
 		var response *http.Response
 		var requestErr error
 		if monitor := metrics.Current(); monitor != nil {
 			response, requestErr = monitor.DoProviderUpstream(&relayClient, request, info.ChannelId, info.ChannelType)
 		} else {
 			response, requestErr = relayClient.Do(request)
+		}
+		if requestErr != nil && firstChunkTimeout == 0 {
+			timing.finish("request_error", requestErr)
+		} else if response != nil && response.Body != nil {
+			timing.response(response)
 		}
 		// Record the headers before first-chunk waiting or protocol handling,
 		// including error responses and attempts that later time out.
@@ -604,6 +612,9 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		resp, err = awaitFirstChunk(c.Request.Context(), req, firstChunkTimeout, send)
 	} else {
 		resp, err = send(req)
+	}
+	if firstChunkTimeout > 0 && timing != nil {
+		timing.finish("request_error", err)
 	}
 	if err != nil {
 		logger.LogError(c, "do request failed: "+err.Error())

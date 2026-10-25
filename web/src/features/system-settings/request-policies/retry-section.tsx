@@ -59,7 +59,7 @@ export function RetrySection() {
               </FormControl>
               <FormDescription>
                 {t(
-                  'Streaming only. Starts after the request is sent and ends on the first response body byte. 0 disables it. Local heartbeats wait until then; timeouts use status 499 and the existing session and retry policy.'
+                  'Streaming only. Starts before the upstream HTTP call and includes connection, TLS and request upload until the first response body byte. 0 disables it. Local heartbeats wait until then; timeouts use status 499 and the existing session and retry policy.'
                 )}
               </FormDescription>
               <FormMessage />
