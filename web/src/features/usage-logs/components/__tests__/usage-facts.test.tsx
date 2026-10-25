@@ -22,7 +22,9 @@ import i18next from 'i18next'
 import { afterEach, beforeAll, describe, expect, test } from 'vitest'
 
 import type { UsageLog } from '../../data/schema'
+import { getTokenCharges } from '../../lib/charge-breakdown'
 import type { LogOtherData } from '../../types'
+import { ChargeBreakdown } from '../dialogs/charge-breakdown'
 import { DetailsDialog } from '../dialogs/details-dialog'
 
 const i18nKeys = {
@@ -97,6 +99,232 @@ function renderDetails(
 function rowValue(label: string): string | null {
   return screen.getByText(label).nextElementSibling?.textContent ?? null
 }
+
+describe('token charge details', () => {
+  test('shows an explicit amount column and the actual charged total', () => {
+    const other: LogOtherData = {
+      billing_charge_tokens: {
+        p: 87,
+        c: 128,
+        cr: 0,
+        cc: 22272,
+        cc5m: 0,
+        cc1h: 0,
+      },
+      billing_prices: { p: 10, c: 50, cr: 1, cc: 10, cc5m: 10, cc1h: 20 },
+      cache_creation_tokens_5m: 0,
+      cache_creation_tokens_1h: 22272,
+      billing_quota_per_unit: 500000,
+    }
+    render(
+      <ChargeBreakdown
+        log={{ ...makeLog(other), quota: 114995 }}
+        other={other}
+      />
+    )
+    const table = within(
+      screen.getByRole('table', { name: 'Charge Breakdown' })
+    )
+    expect(
+      table.getByRole('columnheader', { name: 'Charged amount' })
+    ).toBeVisible()
+    const input = within(table.getByRole('row', { name: /Input charge/ }))
+    expect(input.getByRole('cell', { name: '87' })).toBeVisible()
+    expect(input.getByRole('cell', { name: '$0.00087' })).toBeVisible()
+    expect(
+      within(
+        table.getByRole('row', { name: /Cache write charge \(1h\)/ })
+      ).getByRole('cell', { name: '$0.22272' })
+    ).toBeVisible()
+    expect(
+      within(table.getByRole('row', { name: /Total/ })).getByRole('cell', {
+        name: '$0.22999',
+      })
+    ).toBeVisible()
+  })
+  test('shows total writes and explicit zero versus absent TTL facts', () => {
+    const client = renderDetails(
+      {
+        cache_creation_tokens: 200,
+        cache_creation_tokens_5m: 0,
+        cache_creation_tokens_1h: 200,
+      },
+      1000
+    )
+    expect(rowValue('Cache Write')).toBe('200')
+    expect(rowValue('Cache Write (5m)')).toBe('0')
+    expect(rowValue('Cache Write (1h)')).toBe('200')
+    client.clear()
+  })
+
+  test('does not turn unknown TTL counts or old missing prices into zero charges', () => {
+    const client = renderDetails({ cache_creation_tokens: 200 }, 1000)
+    expect(rowValue('Cache Write (5m)')).toBe('Not reported')
+    expect(rowValue('Cache Write (1h)')).toBe('Not reported')
+    expect(
+      within(screen.getByRole('row', { name: /Input charge/ })).getByText(
+        'Unit price unavailable'
+      )
+    ).toBeVisible()
+    expect(
+      within(
+        screen.getByRole('row', { name: /Cache write charge \(1h\)/ })
+      ).getAllByText('Not reported')
+    ).toHaveLength(2)
+    client.clear()
+  })
+
+  test('uses frozen quantities and effective prices in separate amount cells', () => {
+    const other: LogOtherData = {
+      billing_charge_tokens: {
+        p: 100,
+        c: 20,
+        cr: 50,
+        cc: 200,
+        cc5m: 0,
+        cc1h: 0,
+      },
+      billing_prices: { p: 6, c: 12, cr: 0.6, cc: 9, cc5m: 10, cc1h: 20 },
+      cache_creation_tokens_5m: 0,
+      cache_creation_tokens_1h: 200,
+    }
+    render(<ChargeBreakdown log={makeLog(other)} other={other} />)
+    const table = within(
+      screen.getByRole('table', { name: 'Charge Breakdown' })
+    )
+    expect(
+      within(table.getByRole('row', { name: /Input charge/ })).getByRole(
+        'cell',
+        { name: '$0.0006' }
+      )
+    ).toBeVisible()
+    expect(
+      within(
+        table.getByRole('row', { name: /Cache write charge \(1h\)/ })
+      ).getByRole('cell', { name: '$0.0018' })
+    ).toBeVisible()
+    expect(
+      within(table.getByRole('row', { name: /Cache read charge/ })).getByRole(
+        'cell',
+        { name: '$0.00003' }
+      )
+    ).toBeVisible()
+    expect(screen.queryByText('Cache write charge')).not.toBeInTheDocument()
+  })
+
+  test('preserves an explicitly zero subscription deduction in the total', () => {
+    const other: LogOtherData = {
+      billing_source: 'subscription',
+      subscription_consumed: 0,
+      billing_quota_per_unit: 500000,
+    }
+    render(<ChargeBreakdown log={makeLog(other)} other={other} />)
+    const table = within(
+      screen.getByRole('table', { name: 'Charge Breakdown' })
+    )
+    expect(
+      within(table.getByRole('row', { name: /Total/ })).getByRole('cell', {
+        name: '$0',
+      })
+    ).toBeVisible()
+    expect(
+      within(table.getByRole('row', { name: /Input charge/ })).getByText(
+        'Unit price unavailable'
+      )
+    ).toBeVisible()
+  })
+
+  test('applies logged expression group and request multipliers without changing generic write prices', () => {
+    const rows = getTokenCharges(
+      {
+        billing_mode: 'tiered_expr',
+        expr_b64: btoa(
+          'tier("base", p * 2 + c * 4 + cc * 3 + cc1h * 6) * (param("fast") == true ? 2 : 1)'
+        ),
+        matched_tier: 'base',
+        billing_group_ratio: 1.5,
+        request_rules: [
+          { cond: 'param("fast") == true', multiplier: 2, matched: true },
+        ],
+        billing_tokens: { p: 100, c: 20, cr: 0, cc: 200, cc1h: 0 },
+        cache_creation_tokens_5m: 0,
+        cache_creation_tokens_1h: 200,
+      },
+      300,
+      20
+    )
+    expect(rows.find((row) => row.key === 'p')).toMatchObject({
+      tokens: 100,
+      price: 6,
+    })
+    expect(rows.find((row) => row.key === 'cc1h')).toMatchObject({
+      tokens: 200,
+      price: 9,
+    })
+    expect(rows.find((row) => row.key === 'cr')?.included).toBe(true)
+  })
+
+  test('preserves free prices and keeps separately billed native TTL quantities', () => {
+    const rows = getTokenCharges(
+      {
+        billing_tokens: { p: 100, c: 20, cr: 30, cc: 0, cc5m: 200, cc1h: 300 },
+        billing_prices: { p: 0, c: 0, cr: 0, cc: 0, cc5m: 3.75, cc1h: 6 },
+        cache_creation_tokens_5m: 200,
+        cache_creation_tokens_1h: 300,
+      },
+      100,
+      20
+    )
+    expect(rows.find((row) => row.key === 'p')?.price).toBe(0)
+    expect(rows.find((row) => row.key === 'cc5m')).toMatchObject({
+      tokens: 200,
+      price: 3.75,
+    })
+    expect(rows.find((row) => row.key === 'cc1h')).toMatchObject({
+      tokens: 300,
+      price: 6,
+    })
+  })
+
+  test('does not invent unit prices for custom nonlinear expressions', () => {
+    const rows = getTokenCharges(
+      {
+        billing_mode: 'tiered_expr',
+        expr_b64: btoa('p * p + c'),
+        billing_group_ratio: 1,
+        billing_tokens: { p: 100, c: 20 },
+      },
+      100,
+      20
+    )
+    expect(rows.every((row) => row.price === null)).toBe(true)
+    expect(rows.some((row) => row.included)).toBe(false)
+  })
+
+  test('allocates a native 5m write when no 1h field was reported', () => {
+    const rows = getTokenCharges(
+      {
+        billing_mode: 'tiered_expr',
+        expr_b64: btoa('tier("base", p * 3 + cc * 3.75 + cc1h * 6)'),
+        matched_tier: 'base',
+        billing_group_ratio: 1,
+        billing_tokens: { p: 100, c: 0, cc: 250, cc1h: 0 },
+        cache_creation_tokens_5m: 200,
+      },
+      100,
+      0
+    )
+    expect(rows.find((row) => row.key === 'cc5m')).toMatchObject({
+      tokens: 200,
+      price: 3.75,
+    })
+    expect(rows.find((row) => row.key === 'cc1h')?.tokens).toBeNull()
+    expect(rows.find((row) => row.key === 'cc')).toMatchObject({
+      tokens: 50,
+      price: 3.75,
+    })
+  })
+})
 
 test('hides upstream model mapping from non-admin log details', () => {
   // The backend strips admin_info for non-admin views, so a real non-admin row

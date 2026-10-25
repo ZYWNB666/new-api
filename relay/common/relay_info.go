@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -85,6 +86,9 @@ type TokenCountMeta struct {
 }
 
 type RelayInfo struct {
+	// Observed supplier TTL counts are log facts, never settlement inputs.
+	CacheWrite5m         *int
+	CacheWrite1h         *int
 	GatewayTokenEstimate int64
 	GatewayRequestLimit  *gatewaylimit.Lease
 	GatewayProviderLimit *gatewaylimit.Lease
@@ -973,6 +977,22 @@ func (info *RelayInfo) ConvOptions() *convmeta.Options {
 	return options
 }
 
+// CaptureCacheWriteTTLHeaders keeps optional Kimi cache-write facts separate
+// from usage used for billing. Reset on each response so retries cannot mix TTLs.
+func (info *RelayInfo) CaptureCacheWriteTTLHeaders(header http.Header) {
+	info.CacheWrite5m, info.CacheWrite1h = nil, nil
+	short, err := strconv.ParseInt(strings.TrimSpace(header.Get("msh-usage-cache-write-tokens-5m")), 10, 32)
+	if err != nil || short < 0 {
+		return
+	}
+	long, err := strconv.ParseInt(strings.TrimSpace(header.Get("msh-usage-cache-write-tokens-1h")), 10, 32)
+	if err != nil || long < 0 {
+		return
+	}
+	shortCount, longCount := int(short), int(long)
+	info.CacheWrite5m, info.CacheWrite1h = &shortCount, &longCount
+}
+
 func (info *RelayInfo) SetFirstResponseTime() {
 	if info.isFirstResponse {
 		info.FirstResponseTime = time.Now()
@@ -1036,6 +1056,7 @@ func (info *RelayInfo) ReportPromptCacheUsage(usage *dto.Usage) {
 
 // BeginProviderMetrics starts one provider invocation after conversion and before I/O.
 func (info *RelayInfo) BeginProviderMetrics(c *gin.Context) *metrics.ProviderAttempt {
+	info.CacheWrite5m, info.CacheWrite1h = nil, nil
 	info.InitGenerationMetrics(c)
 	if info.GenerationMetrics == nil {
 		return nil

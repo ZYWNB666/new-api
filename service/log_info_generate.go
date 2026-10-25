@@ -344,10 +344,13 @@ func InjectTieredBillingInfo(other *model.LogOther, relayInfo *relaycommon.Relay
 		return
 	}
 	other.SetPublic("billing_mode", "tiered_expr")
+	other.SetPublic("billing_group_ratio", snap.GroupRatio)
 	other.SetPublic("expr_b64", base64.StdEncoding.EncodeToString([]byte(snap.ExprString)))
 	if result != nil {
 		if tokens := result.BillingTokens; tokens != nil && result.BillingUnit == billingexpr.BillingUnitToken {
-			other.SetPublic("image_cache_tokens", tokens.ImgCR)
+			if billingexpr.UsedVarsByHash(snap.ExprString, snap.ExprHash)["img_cr"] {
+				other.SetPublic("image_cache_tokens", tokens.ImgCR)
+			}
 			other.SetPublic("billing_tokens", map[string]float64{
 				"p": tokens.P, "c": tokens.C, "len": tokens.Len,
 				"cr": tokens.CR, "cc": tokens.CC, "cc1h": tokens.CC1h,

@@ -107,6 +107,7 @@ func OaiStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Re
 	}
 
 	defer service.CloseResponseBodyGracefully(resp)
+	info.CaptureCacheWriteTTLHeaders(resp.Header)
 
 	model := info.UpstreamModelName
 	var responseId string
@@ -250,6 +251,7 @@ func observeStreamChoices(info *relaycommon.RelayInfo, data string, seen map[str
 
 func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	defer service.CloseResponseBodyGracefully(resp)
+	info.CaptureCacheWriteTTLHeaders(resp.Header)
 
 	var simpleResponse dto.OpenAITextResponse
 	responseBody, err := io.ReadAll(resp.Body)

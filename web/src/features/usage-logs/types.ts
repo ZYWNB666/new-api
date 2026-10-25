@@ -194,7 +194,12 @@ export interface LogOtherData {
   cache_tokens?: number
   image_cache_tokens?: number
   billing_tokens?: Record<string, number>
+  billing_prices?: Record<string, number>
+  billing_charge_tokens?: Record<string, number>
+  billing_group_ratio?: number
+  billing_quota_per_unit?: number
   cache_creation_tokens?: number
+  cache_write_tokens?: number
   cache_creation_tokens_5m?: number
   cache_creation_tokens_1h?: number
   claude?: boolean

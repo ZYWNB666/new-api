@@ -90,6 +90,7 @@ import {
 import { USAGE_BILLING_PATH, type LogOtherData } from '../../types'
 import { ResponseModelDetails } from '../model-badge'
 import { PluginAuthorLink } from '../plugin-author-link'
+import { ChargeBreakdown } from './charge-breakdown'
 import { DetailRow, DetailSection } from './log-detail-layout'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
@@ -406,26 +407,29 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
     })
   }
 
-  if (cacheWrite > 0 && cacheWrite5m === 0 && cacheWrite1h === 0) {
-    rows.push({
+  rows.push(
+    {
       label: t('Cache Write'),
-      value: cacheWrite.toLocaleString(),
-    })
-  }
-
-  if (cacheWrite5m > 0) {
-    rows.push({
+      value: (
+        other.cache_write_tokens ??
+        Math.max(cacheWrite, cacheWrite5m + cacheWrite1h)
+      ).toLocaleString(),
+    },
+    {
       label: t('Cache Write (5m)'),
-      value: cacheWrite5m.toLocaleString(),
-    })
-  }
-
-  if (cacheWrite1h > 0) {
-    rows.push({
+      value:
+        other.cache_creation_tokens_5m === undefined
+          ? t('Not reported')
+          : cacheWrite5m.toLocaleString(),
+    },
+    {
       label: t('Cache Write (1h)'),
-      value: cacheWrite1h.toLocaleString(),
-    })
-  }
+      value:
+        other.cache_creation_tokens_1h === undefined
+          ? t('Not reported')
+          : cacheWrite1h.toLocaleString(),
+    }
+  )
 
   if (other.image && other.image_output) {
     rows.push({
@@ -1130,9 +1134,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
 
         {adminInfo?.response_model && (
           <DetailSection label={t('Response Model')}>
-            <ResponseModelDetails
-              observation={adminInfo.response_model}
-            />
+            <ResponseModelDetails observation={adminInfo.response_model} />
           </DetailSection>
         )}
         {/* Model mapping for logs without response observations.
@@ -1158,6 +1160,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
         {/* Token breakdown (for consume/error types with token data) */}
         {isDisplayableType(props.log.type) && other && (
           <TokenBreakdown log={props.log} other={other} />
+        )}
+        {isConsume && other && !isViolation && (
+          <ChargeBreakdown log={props.log} other={other} />
         )}
 
         {/* Billing breakdown (consume type) */}

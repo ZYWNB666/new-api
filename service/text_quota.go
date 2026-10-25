@@ -37,6 +37,8 @@ func appendToolSurchargeLogInfo(other *model.LogOther, items []ToolSurchargeItem
 }
 
 type textQuotaSummary struct {
+	BillingTokens          map[string]float64
+	BillingPrices          map[string]float64
 	PromptTokens           int
 	CompletionTokens       int
 	TotalTokens            int
@@ -347,6 +349,27 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		if baseTokens.IsNegative() {
 			baseTokens = decimal.Zero
 		}
+		// Preserve the exact quantities and effective prices used by this run.
+		// This snapshot is display-only and does not participate in settlement.
+		writeDefault := dCachedCreationTokens
+		write5m, write1h := decimal.Zero, decimal.Zero
+		if summary.IsClaudeUsageSemantic || legacyClaudeDerived {
+			writeDefault = decimal.NewFromInt(int64(max(summary.CacheCreationTokens-summary.CacheCreationTokens5m-summary.CacheCreationTokens1h, 0)))
+			write5m = decimal.NewFromInt(int64(summary.CacheCreationTokens5m))
+			write1h = decimal.NewFromInt(int64(summary.CacheCreationTokens1h))
+		}
+		summary.BillingTokens = map[string]float64{
+			"p": baseTokens.InexactFloat64(), "c": dCompletionTokens.InexactFloat64(),
+			"cr": dCacheTokens.InexactFloat64(), "cc": writeDefault.InexactFloat64(),
+			"cc5m": write5m.InexactFloat64(), "cc1h": write1h.InexactFloat64(),
+		}
+		basePrice := dModelRatio.Mul(dGroupRatio).Mul(decimal.NewFromInt(1000000)).Div(dQuotaPerUnit)
+		basePrice = relayInfo.PriceData.ApplyOtherRatiosToDecimal(basePrice)
+		summary.BillingPrices = map[string]float64{
+			"p": basePrice.InexactFloat64(), "c": basePrice.Mul(dCompletionRatio).InexactFloat64(),
+			"cr": basePrice.Mul(dCacheRatio).InexactFloat64(), "cc": basePrice.Mul(dCacheCreationRatio).InexactFloat64(),
+			"cc5m": basePrice.Mul(dCacheCreationRatio5m).InexactFloat64(), "cc1h": basePrice.Mul(dCacheCreationRatio1h).InexactFloat64(),
+		}
 
 		promptQuota := baseTokens.Add(cachedTokensWithRatio).Add(imageTokensWithRatio).Add(cachedCreationTokensWithRatio)
 		completionQuota := dCompletionTokens.Mul(dCompletionRatio)
@@ -519,6 +542,17 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		// If split 5m/1h values are present, this is their sum; otherwise it falls back
 		// to cache_creation_tokens.
 		other.SetPublic("cache_write_tokens", cacheWriteTokens)
+	}
+	if summary.CacheCreationTokens5m == 0 && summary.CacheCreationTokens1h == 0 &&
+		relayInfo.CacheWrite5m != nil && relayInfo.CacheWrite1h != nil &&
+		int64(*relayInfo.CacheWrite5m)+int64(*relayInfo.CacheWrite1h) == int64(cacheWriteTokens) {
+		other.SetPublic("cache_creation_tokens_5m", *relayInfo.CacheWrite5m)
+		other.SetPublic("cache_creation_tokens_1h", *relayInfo.CacheWrite1h)
+	}
+	other.SetPublic("billing_quota_per_unit", common.QuotaPerUnit)
+	if !tieredBillingApplied && summary.BillingTokens != nil {
+		other.SetPublic("billing_charge_tokens", summary.BillingTokens)
+		other.SetPublic("billing_prices", summary.BillingPrices)
 	}
 	if relayInfo.GetFinalRequestRelayFormat() != types.RelayFormatClaude && billingUsage != nil && billingUsage.UsageSource != "" && billingUsage.InputTokens > 0 {
 		// input_tokens_total: explicit normalized total input used by the usage log UI.

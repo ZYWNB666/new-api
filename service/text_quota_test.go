@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"math"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
@@ -109,6 +110,7 @@ func runFixedPriceAccountingCases(t *testing.T, db, logDB *gorm.DB) {
 		estimate                                  int
 		usage                                     *dto.Usage
 		audio, stream, refund, insufficient, tool bool
+		cacheTTL                                  bool
 		realtime, reserveInsufficient             bool
 		wallet, outboundImages                    int
 		groupRatio                                float64
@@ -117,6 +119,7 @@ func runFixedPriceAccountingCases(t *testing.T, db, logDB *gorm.DB) {
 		requestedImages, actualImages             int
 	}{
 		{name: "missing usage charges once", expression: flat, want: 5000, unit: billingexpr.BillingUnitRequest},
+		{name: "supplier TTL remains a log fact with frozen expression inputs", expression: `tier("base", p * 2 + c * 4 + cc * 3)`, cacheTTL: true, groupRatio: 1.5, usage: &dto.Usage{PromptTokens: 200, CompletionTokens: 20, TotalTokens: 220, PromptTokensDetails: dto.InputTokenDetails{CacheWriteTokens: 100}}, want: 435, unit: billingexpr.BillingUnitToken},
 		{name: "zero usage charges once", expression: flat, usage: &dto.Usage{}, want: 5000, unit: billingexpr.BillingUnitRequest},
 		{name: "stream charges once", expression: flat, stream: true, usage: &dto.Usage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120}, want: 5000, unit: billingexpr.BillingUnitRequest},
 		{name: "audio zero usage charges once", expression: flat, audio: true, usage: &dto.Usage{}, want: 5000, unit: billingexpr.BillingUnitRequest},
@@ -177,6 +180,9 @@ func runFixedPriceAccountingCases(t *testing.T, db, logDB *gorm.DB) {
 			snapshot.EstimatedImageCount = trace.ImageCount
 			info := &relaycommon.RelayInfo{UserId: user.Id, TokenId: token.Id, TokenKey: token.Key, ChannelMeta: &relaycommon.ChannelMeta{ChannelId: channel.Id}, OriginModelName: "fixed-test", UsingGroup: "default", UserGroup: "default", UserSetting: dto.UserSetting{BillingPreference: "wallet_only"}, ForcePreConsume: true, StartTime: time.Now(), IsStream: tc.stream, RelayFormat: types.RelayFormatOpenAI, PriceData: hosttypes.PriceData{GroupRatioInfo: hosttypes.GroupRatioInfo{GroupRatio: group}}, TieredBillingSnapshot: snapshot, BillingRequestInput: request}
 			info.SetEstimatePromptTokens(tc.estimate)
+			if tc.cacheTTL {
+				info.CaptureCacheWriteTTLHeaders(http.Header{"Msh-Usage-Cache-Write-Tokens-5m": {"0"}, "Msh-Usage-Cache-Write-Tokens-1h": {"100"}})
+			}
 			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 			ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
 			if tc.expression == imageExpression {
@@ -245,6 +251,12 @@ func runFixedPriceAccountingCases(t *testing.T, db, logDB *gorm.DB) {
 					var other map[string]any
 					require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
 					assert.Equal(t, string(tc.unit), other["billing_unit"])
+					if tc.cacheTTL {
+						assert.Equal(t, float64(100), other["cache_creation_tokens_1h"])
+						assert.Equal(t, float64(0), other["cache_creation_tokens_5m"])
+						assert.Equal(t, 1.5, other["billing_group_ratio"])
+						assert.Equal(t, common.QuotaPerUnit, other["billing_quota_per_unit"])
+					}
 					if tc.requestedImages > 0 {
 						count := tc.actualImages
 						if count == 0 {
@@ -274,7 +286,17 @@ func runFixedPriceAccountingCases(t *testing.T, db, logDB *gorm.DB) {
 							assert.Equal(t, float64(400), billable["img"])
 						}
 					} else {
-						assert.NotContains(t, other, "billing_tokens")
+						if tc.unit == billingexpr.BillingUnitToken {
+							assert.Contains(t, other, "billing_tokens")
+							if tc.cacheTTL {
+								values := other["billing_tokens"].(map[string]any)
+								assert.Equal(t, float64(100), values["p"])
+								assert.Equal(t, float64(100), values["cc"])
+								assert.Equal(t, float64(0), values["cc1h"], "response headers must not change expression inputs")
+							}
+						} else {
+							assert.NotContains(t, other, "billing_tokens")
+						}
 						assert.NotContains(t, other, "image_cache_tokens")
 					}
 					if tc.unit == billingexpr.BillingUnitRequest {
@@ -827,6 +849,10 @@ func TestCalculateTextQuotaSummaryBillsOpenAICacheWriteTokens(t *testing.T) {
 		require.Equal(t, 1470, summary.CacheCreationTokens)
 		// (1473-0-1470) + 1470*1.25 + 19*2 = 3 + 1837.5 + 38 = 1878.5 => 1879
 		require.Equal(t, 1879, summary.Quota)
+		assert.Equal(t, float64(3), summary.BillingTokens["p"])
+		assert.Equal(t, float64(1470), summary.BillingTokens["cc"])
+		assert.Equal(t, float64(2), summary.BillingPrices["p"])
+		assert.Equal(t, float64(2.5), summary.BillingPrices["cc"])
 	})
 
 	t.Run("uncached remainder clamps to zero", func(t *testing.T) {
@@ -849,6 +875,35 @@ func TestCalculateTextQuotaSummaryBillsOpenAICacheWriteTokens(t *testing.T) {
 		// max(3619-2921-3616, 0) + 2921*0.1 + 3616*1.25 + 36*2 = 4884.1 => 4884
 		require.Equal(t, 4884, summary.Quota)
 	})
+}
+
+func TestSupplierCacheWriteTTLHeadersAreBoundedAndReset(t *testing.T) {
+	for _, tc := range []struct {
+		name, short, long string
+		valid             bool
+	}{
+		{"one hour write", "0", "100", true},
+		{"explicit zero", "0", "0", true},
+		{"negative", "-1", "100", false},
+		{"malformed", "0", "abc", false},
+		{"overflow", "0", "2147483648", false},
+		{"missing", "", "100", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			info := &relaycommon.RelayInfo{}
+			info.CaptureCacheWriteTTLHeaders(http.Header{"Msh-Usage-Cache-Write-Tokens-5m": {tc.short}, "Msh-Usage-Cache-Write-Tokens-1h": {tc.long}})
+			if tc.valid {
+				require.NotNil(t, info.CacheWrite5m)
+				require.NotNil(t, info.CacheWrite1h)
+			} else {
+				assert.Nil(t, info.CacheWrite5m)
+				assert.Nil(t, info.CacheWrite1h)
+			}
+			info.CaptureCacheWriteTTLHeaders(http.Header{})
+			assert.Nil(t, info.CacheWrite5m, "a later provider response must not inherit TTL facts")
+			assert.Nil(t, info.CacheWrite1h)
+		})
+	}
 }
 
 func TestCalculateTextQuotaSummarySeparatesOpenRouterCacheReadFromPromptBilling(t *testing.T) {
