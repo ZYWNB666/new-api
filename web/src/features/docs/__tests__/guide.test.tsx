@@ -92,6 +92,8 @@ describe('documentation guide', () => {
 
   it('shows troubleshooting statuses and preserves the project documentation link', () => {
     render(<Docs />)
+    expect(screen.getByText(/Save X-Nawei-Request-Id/)).toBeVisible()
+    expect(screen.queryByText(/X-Oneapi-Request-Id/)).not.toBeInTheDocument()
     expect(screen.getByRole('table')).toHaveClass('min-w-[32rem]')
     for (const status of ['401', '403', '429', '5xx']) {
       expect(screen.getByText(status)).toBeVisible()

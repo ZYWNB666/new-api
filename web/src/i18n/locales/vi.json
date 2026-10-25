@@ -5259,7 +5259,7 @@
     "Save tool prices": "Lưu giá công cụ",
     "Save Waffo Pancake settings": "Lưu cài đặt Waffo Pancake",
     "Save Worker settings": "Lưu cài đặt Worker",
-    "Save X-Oneapi-Request-Id from the response headers, together with the time and model name. Search for that Request ID in Usage Logs to find the gateway record.": "Lưu X-Oneapi-Request-Id từ tiêu đề phản hồi, cùng thời gian và tên mô hình. Tìm Request ID đó trong nhật ký sử dụng để tra bản ghi của cổng kết nối.",
+    "Save X-Nawei-Request-Id from the response headers, together with the time and model name. Search for that Request ID in Usage Logs to find the gateway record.": "Lưu X-Nawei-Request-Id từ tiêu đề phản hồi, cùng thời gian và tên mô hình. Tìm Request ID đó trong nhật ký sử dụng để tra bản ghi của cổng kết nối.",
     "Saved successfully": "Lưu thành công",
     "Saving...": "Đang lưu...",
     "Scan QR Code": "Quét mã QR",

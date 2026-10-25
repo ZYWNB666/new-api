@@ -5259,7 +5259,7 @@
     "Save tool prices": "保存工具价格",
     "Save Waffo Pancake settings": "保存 Waffo Pancake 设置",
     "Save Worker settings": "保存 Worker 设置",
-    "Save X-Oneapi-Request-Id from the response headers, together with the time and model name. Search for that Request ID in Usage Logs to find the gateway record.": "保存响应头中的 X-Oneapi-Request-Id，以及请求时间和模型名称。在使用日志中搜索该 Request ID，可找到网关记录。",
+    "Save X-Nawei-Request-Id from the response headers, together with the time and model name. Search for that Request ID in Usage Logs to find the gateway record.": "保存响应头中的 X-Nawei-Request-Id，以及请求时间和模型名称。在使用日志中搜索该 Request ID，可找到网关记录。",
     "Saved successfully": "保存成功",
     "Saving...": "正在保存...",
     "Scan QR Code": "扫描二维码",

@@ -359,7 +359,7 @@ export function Docs() {
                 <h2 className='text-xl font-semibold'>Request ID</h2>
                 <p className='text-muted-foreground leading-7'>
                   {t(
-                    'Save X-Oneapi-Request-Id from the response headers, together with the time and model name. Search for that Request ID in Usage Logs to find the gateway record.'
+                    'Save X-Nawei-Request-Id from the response headers, together with the time and model name. Search for that Request ID in Usage Logs to find the gateway record.'
                   )}
                 </p>
                 <p className='text-muted-foreground leading-7'>

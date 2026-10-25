@@ -25,15 +25,38 @@ func CloseResponseBodyGracefully(httpResponse *http.Response) {
 
 // ShouldCopyUpstreamHeader checks whether a given upstream response header
 // should be copied to the client response. It returns false for Content-Length
-// (managed separately) and X-Oneapi-Request-Id (to preserve the local instance
-// ID). When the upstream header is X-Oneapi-Request-Id, the value is captured
-// into the Gin context for later logging.
+// (managed separately) and gateway version/request ID headers. The local ID
+// and version stay authoritative; upstream IDs, including legacy provider
+// header names, are retained in context for logging.
 func ShouldCopyUpstreamHeader(c *gin.Context, k string, v []string) bool {
+	publicName := common.PublicResponseHeaderName(k)
 	if strings.EqualFold(k, "Content-Length") {
 		return false
 	}
-	if strings.EqualFold(k, common.RequestIdKey) {
-		if c != nil && len(v) > 0 {
+	if strings.EqualFold(k, "Access-Control-Expose-Headers") && c != nil {
+		// Keep the locally exposed correlation/version headers when a provider
+		// supplies its own list of headers readable by browser clients.
+		for _, value := range v {
+			var names []string
+			for name := range strings.SplitSeq(value, ",") {
+				name = strings.TrimSpace(name)
+				name = common.PublicResponseHeaderName(name)
+				if name == "" {
+					continue
+				}
+				names = append(names, name)
+			}
+			if len(names) > 0 {
+				c.Writer.Header().Add(k, strings.Join(names, ", "))
+			}
+		}
+		return false
+	}
+	if strings.EqualFold(publicName, common.VersionHeaderKey) {
+		return false
+	}
+	if strings.EqualFold(publicName, common.RequestIdKey) {
+		if c != nil && len(v) > 0 && (strings.EqualFold(k, common.RequestIdKey) || c.GetString(common.UpstreamRequestIdKey) == "") {
 			c.Set(common.UpstreamRequestIdKey, v[0])
 		}
 		return false

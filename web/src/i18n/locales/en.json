@@ -5259,7 +5259,7 @@
     "Save tool prices": "Save tool prices",
     "Save Waffo Pancake settings": "Save Waffo Pancake settings",
     "Save Worker settings": "Save Worker settings",
-    "Save X-Oneapi-Request-Id from the response headers, together with the time and model name. Search for that Request ID in Usage Logs to find the gateway record.": "Save X-Oneapi-Request-Id from the response headers, together with the time and model name. Search for that Request ID in Usage Logs to find the gateway record.",
+    "Save X-Nawei-Request-Id from the response headers, together with the time and model name. Search for that Request ID in Usage Logs to find the gateway record.": "Save X-Nawei-Request-Id from the response headers, together with the time and model name. Search for that Request ID in Usage Logs to find the gateway record.",
     "Saved successfully": "Saved successfully",
     "Saving...": "Saving...",
     "Scan QR Code": "Scan QR Code",
