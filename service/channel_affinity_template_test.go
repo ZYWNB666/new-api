@@ -13,8 +13,10 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/adaptiverouting"
 	"github.com/QuantumNous/new-api/pkg/cachex"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relaydto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/alicebob/miniredis/v2"
@@ -57,6 +59,7 @@ func TestAutomaticChannelAffinity(t *testing.T) {
 			require.True(t, ok)
 			assert.Equal(t, 3600, meta.TTLSeconds, "automatic bindings must cover 1h caches even with a 600s global TTL")
 			assert.Equal(t, "prefer", RequestPolicy(seed).SessionMode)
+			assert.Equal(t, "prompt_hash", meta.KeySourceType)
 			assert.NotContains(t, meta.CacheKey, "PRIVATE_")
 			RecordChannelAffinity(seed, 101)
 			followup := automaticAffinityContextForTest(42, "/v1/chat/completions", continued)
@@ -64,6 +67,11 @@ func TestAutomaticChannelAffinity(t *testing.T) {
 			require.True(t, found)
 			assert.Equal(t, 101, channelID, "additional turns and object key ordering must keep the binding")
 			RecordChannelAffinity(followup, 101)
+			MarkChannelAffinityUsed(followup, "default", 101)
+			info, ok := followup.Get(ginKeyChannelAffinityLogInfo)
+			require.True(t, ok)
+			assert.Equal(t, "prompt_hash", info.(map[string]any)["key_source"])
+			assert.NotEmpty(t, info.(map[string]any)["key_fp"])
 			decision := DecideRelayRetry(followup, types.NewErrorWithStatusCode(errors.New("first chunk timeout"), types.ErrorCodeUpstreamFirstChunkTimeout, 499), 1)
 			assert.Equal(t, "retry", decision.Action)
 			for _, tc := range []struct {
@@ -128,14 +136,28 @@ func TestAutomaticAffinityIdentityAndOptOut(t *testing.T) {
 	first.Request.Header.Set("X-Session-Id", "header-key")
 	second := automaticAffinityContextForTest(42, "/v1/chat/completions", `{"prompt_cache_key":"different","messages":[{"role":"user","content":"changed"}]}`)
 	second.Request.Header.Set("X-Session-Id", "header-key")
-	assert.Equal(t, automaticChannelAffinityKey(first, "GLM-5.3", "default"), automaticChannelAffinityKey(second, "GLM-5.3", "default"), "explicit headers take precedence over body and generated identities")
+	firstKey, firstPrompt := automaticChannelAffinityKey(first, "GLM-5.3", "default")
+	secondKey, secondPrompt := automaticChannelAffinityKey(second, "GLM-5.3", "default")
+	assert.Equal(t, firstKey, secondKey, "explicit headers take precedence over body and generated identities")
+	assert.False(t, firstPrompt)
+	assert.False(t, secondPrompt)
 	bodyFirst := automaticAffinityContextForTest(42, "/v1/chat/completions", `{"prompt_cache_key":"stable-body-key","messages":[{"role":"user","content":"one"}]}`)
 	bodySecond := automaticAffinityContextForTest(42, "/v1/chat/completions", `{"prompt_cache_key":"stable-body-key","messages":[{"role":"user","content":"two"}]}`)
-	assert.Equal(t, automaticChannelAffinityKey(bodyFirst, "GLM-5.3", "default"), automaticChannelAffinityKey(bodySecond, "GLM-5.3", "default"))
-	assert.Empty(t, automaticChannelAffinityKey(automaticAffinityContextForTest(0, "/v1/chat/completions", `{"input":"hi"}`), "GLM-5.3", "default"))
+	bodyFirstKey, bodyFirstPrompt := automaticChannelAffinityKey(bodyFirst, "GLM-5.3", "default")
+	bodySecondKey, bodySecondPrompt := automaticChannelAffinityKey(bodySecond, "GLM-5.3", "default")
+	assert.Equal(t, bodyFirstKey, bodySecondKey)
+	assert.False(t, bodyFirstPrompt)
+	assert.False(t, bodySecondPrompt)
+	emptyKey, fromPrompt := automaticChannelAffinityKey(automaticAffinityContextForTest(0, "/v1/chat/completions", `{"input":"hi"}`), "GLM-5.3", "default")
+	assert.Empty(t, emptyKey)
+	assert.False(t, fromPrompt)
 	image1 := automaticAffinityContextForTest(42, "/v1/chat/completions", `{"messages":[{"role":"user","content":[{"type":"text","text":"describe"},{"type":"image_url","image_url":{"url":"https://example.com/a"}}]}]}`)
 	image2 := automaticAffinityContextForTest(42, "/v1/chat/completions", `{"messages":[{"role":"user","content":[{"type":"text","text":"describe"},{"type":"image_url","image_url":{"url":"https://example.com/b"}}]}]}`)
-	assert.NotEqual(t, automaticChannelAffinityKey(image1, "GLM-5.3", "default"), automaticChannelAffinityKey(image2, "GLM-5.3", "default"))
+	imageKey1, imagePrompt1 := automaticChannelAffinityKey(image1, "GLM-5.3", "default")
+	imageKey2, imagePrompt2 := automaticChannelAffinityKey(image2, "GLM-5.3", "default")
+	assert.NotEqual(t, imageKey1, imageKey2)
+	assert.True(t, imagePrompt1)
+	assert.True(t, imagePrompt2)
 	for _, mode := range []string{"disabled", "global off", "rule off"} {
 		t.Run(mode, func(t *testing.T) {
 			*setting = operation_setting.ChannelAffinitySetting{Enabled: true, SessionMode: "prefer"}
@@ -601,5 +623,78 @@ func TestSessionRulesInheritOrOverrideGlobalDefault(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestAdaptiveRoutingMovesPreferredAffinityButPreservesStrictBinding(t *testing.T) {
+	db := setupChannelSelectAutoGroupsTest(t)
+	previousStore := adaptiverouting.Default
+	adaptiverouting.Default = adaptiverouting.NewStore()
+	setting := operation_setting.GetChannelAffinitySetting()
+	previousSetting, previousCache := *setting, getChannelAffinityCache()
+	t.Cleanup(func() {
+		adaptiverouting.Default = previousStore
+		*setting = previousSetting
+		channelAffinityCache = previousCache
+	})
+	*setting = operation_setting.ChannelAffinitySetting{Enabled: true, SessionMode: "prefer", DefaultTTLSeconds: 3600, MaxEntries: 100}
+	createChannelSelectAutoGroupsChannel(t, db, 4101, "default", "glm")
+	createChannelSelectAutoGroupsChannel(t, db, 4102, "default", "glm")
+	model.InitChannelCache()
+	const body = `{"model":"glm","messages":[{"role":"user","content":"adaptive-affinity"}]}`
+	seed := automaticAffinityContextForTest(991, "/v1/chat/completions", body)
+	_, found := GetPreferredChannelByAffinity(seed, "glm", "default")
+	require.False(t, found)
+	RecordChannelAffinity(seed, 4101)
+	adaptiverouting.Default.Record(adaptiverouting.Sample{ChannelID: 4101, Model: "glm", Status: 429, Outcome: "failure", RetryAfter: "60"}, time.Now())
+	for _, mode := range []string{"prefer", "strict"} {
+		RecordChannelAffinity(seed, 4101)
+		setting.SessionMode = mode
+		c := automaticAffinityContextForTest(991, "/v1/chat/completions", body)
+		common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
+		common.SetContextKey(c, constant.ContextKeyUserSetting, relaydto.UserSetting{AdaptiveRouting: true})
+		selected, _, selectErr := SelectChannelForRequest(c, "glm", &RetryParam{Ctx: c, TokenGroup: "default", ModelName: "glm"})
+		if mode == "strict" {
+			require.NotNil(t, selectErr)
+			assert.Equal(t, http.StatusTooManyRequests, selectErr.StatusCode)
+			assert.Nil(t, selected)
+		} else {
+			require.Nil(t, selectErr)
+			require.NotNil(t, selected)
+			assert.Equal(t, 4102, selected.Id)
+		}
+	}
+}
+
+func TestAdaptiveRoutingComparesPeersInsteadOfKeepingSoftAffinity(t *testing.T) {
+	db := setupChannelSelectAutoGroupsTest(t)
+	setting := operation_setting.GetChannelAffinitySetting()
+	previousSetting, previousCache := *setting, getChannelAffinityCache()
+	t.Cleanup(func() { *setting = previousSetting; channelAffinityCache = previousCache })
+	*setting = operation_setting.ChannelAffinitySetting{Enabled: true, SessionMode: "prefer", DefaultTTLSeconds: 3600, MaxEntries: 100}
+	createChannelSelectAutoGroupsChannel(t, db, 4201, "default", "relative-affinity")
+	createChannelSelectAutoGroupsChannel(t, db, 4202, "default", "relative-affinity")
+	require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", 4201).Update("weight", 0).Error)
+	require.NoError(t, db.Model(&model.Ability{}).Where("channel_id = ?", 4201).Update("weight", 0).Error)
+	model.InitChannelCache()
+	const body = `{"model":"relative-affinity","messages":[{"role":"user","content":"relative-peer-comparison"}]}`
+	seed := automaticAffinityContextForTest(992, "/v1/chat/completions", body)
+	_, found := GetPreferredChannelByAffinity(seed, "relative-affinity", "default")
+	require.False(t, found)
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("adaptive=%t", enabled), func(t *testing.T) {
+			RecordChannelAffinity(seed, 4201)
+			c := automaticAffinityContextForTest(992, "/v1/chat/completions", body)
+			common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
+			common.SetContextKey(c, constant.ContextKeyUserSetting, relaydto.UserSetting{AdaptiveRouting: enabled})
+			channel, _, selectErr := SelectChannelForRequest(c, "relative-affinity", &RetryParam{Ctx: c, TokenGroup: "default", ModelName: "relative-affinity"})
+			require.Nil(t, selectErr)
+			require.NotNil(t, channel)
+			if enabled {
+				assert.Equal(t, 4202, channel.Id, "adaptive selection compares eligible weighted peers")
+			} else {
+				assert.Equal(t, 4201, channel.Id, "ordinary users retain existing session affinity")
+			}
+		})
 	}
 }

@@ -32,15 +32,17 @@ func channelAffinityRules(setting *operation_setting.ChannelAffinitySetting) []o
 // automaticChannelAffinityKey is a routing fingerprint, never a provider cache
 // parameter. It hashes canonical JSON, so object ordering and concatenation
 // ambiguity do not affect the key, and no prompt/session text enters the cache.
-func automaticChannelAffinityKey(c *gin.Context, modelName, usingGroup string) string {
+// The boolean reports whether prompt content, rather than an explicit ID, was used.
+func automaticChannelAffinityKey(c *gin.Context, modelName, usingGroup string) (string, bool) {
 	if c == nil || c.Request == nil || c.Request.Method != http.MethodPost {
-		return ""
+		return "", false
 	}
 	userID := common.GetContextKeyInt(c, constant.ContextKeyUserId)
 	if userID <= 0 {
-		return ""
+		return "", false
 	}
 	var identity any
+	fromPrompt := false
 	for _, name := range []string{"X-Session-Id", "X-Conversation-Id", "Session-Id", "Session_id", "Thread-Id", "Thread_id"} {
 		if value := strings.TrimSpace(c.GetHeader(name)); value != "" {
 			identity = []any{"header", name, value}
@@ -50,11 +52,11 @@ func automaticChannelAffinityKey(c *gin.Context, modelName, usingGroup string) s
 	if identity == nil {
 		storage, err := common.GetBodyStorage(c)
 		if err != nil {
-			return ""
+			return "", false
 		}
 		body, err := storage.Bytes()
 		if err != nil || !gjson.ValidBytes(body) {
-			return ""
+			return "", false
 		}
 		root := gjson.ParseBytes(body)
 		for _, path := range []string{"prompt_cache_key", "metadata.session_id", "metadata.conversation_id", "session_id", "conversation.id", "conversation"} {
@@ -91,15 +93,16 @@ func automaticChannelAffinityKey(c *gin.Context, modelName, usingGroup string) s
 				}
 			}
 			if !firstUser.Exists() || firstUser.Type == gjson.Null || firstUser.Type == gjson.String && strings.TrimSpace(firstUser.String()) == "" || firstUser.IsArray() && len(firstUser.Array()) == 0 {
-				return ""
+				return "", false
 			}
+			fromPrompt = true
 			identity = []any{"content", c.Request.URL.Path, systems, root.Get("tools").Value(), firstUser.Value()}
 		}
 	}
 	data, err := common.Marshal([]any{"automatic-affinity-v1", userID, modelName, usingGroup, identity})
 	if err != nil {
-		return ""
+		return "", false
 	}
 	sum := sha256.Sum256(data)
-	return "session-" + hex.EncodeToString(sum[:])
+	return "session-" + hex.EncodeToString(sum[:]), fromPrompt
 }

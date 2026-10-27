@@ -6,6 +6,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/QuantumNous/new-api/pkg/adaptiverouting"
+
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -32,6 +34,8 @@ type Generation struct {
 }
 
 type ProviderAttempt struct {
+	routingTokens               int64
+	retryAfter                  string
 	mu                          sync.Mutex
 	generation                  *Generation
 	channelID, channelType      int
@@ -49,9 +53,13 @@ func (m *Metrics) NewGeneration(started time.Time) *Generation {
 }
 
 // NewGenerationForTenant uses the client-requested model, before channel mapping.
+// A nil receiver retains timing for adaptive routing without exporting metrics.
 func (m *Metrics) NewGenerationForTenant(started time.Time, model string, tenantID int, stream bool) *Generation {
 	if model == "" || len(model) > 256 || !utf8.ValidString(model) {
 		model = "unknown"
+	}
+	if m == nil {
+		return &Generation{started: started, model: model, stream: stream, outcome: "failure"}
 	}
 	tenant := "unknown"
 	if tenantID > 0 {
@@ -95,6 +103,11 @@ func (g *Generation) BeginAttempt(channelID, channelType int, stream bool, start
 	defer g.mu.Unlock()
 	if g.finished {
 		return nil
+	}
+	if g.monitor == nil {
+		a := &ProviderAttempt{generation: g, channelID: channelID, channelType: channelType, stream: stream, started: started}
+		g.attempt, g.stream = a, stream
+		return a
 	}
 	model, tenant := g.monitor.generationLabels(g.model, g.tenantID, channelID, channelType)
 	labels := []string{"provider", strconv.Itoa(channelID), strconv.Itoa(channelType), model, tenant}
@@ -246,13 +259,25 @@ func (a *ProviderAttempt) Finish(tokens int64, outcome string) {
 		return
 	}
 	a.finished = true
-	a.inFlight.Dec()
+	if a.inFlight != nil {
+		a.inFlight.Dec()
+	}
 	switch outcome {
 	case "success", "failure", "ignored":
 	default:
 		outcome = "failure"
 	}
-	a.generation.monitor.observeGeneration(a.metricModel, a.metricTenantID, "provider", a.channelID, a.channelType, a.stream, a.started, a.first, a.last, tokens, a.status, outcome, a.promptUsage)
+	if a.generation.monitor != nil {
+		a.generation.monitor.observeGeneration(a.metricModel, a.metricTenantID, "provider", a.channelID, a.channelType, a.stream, a.started, a.first, a.last, tokens, a.status, outcome, a.promptUsage)
+	}
+	sample := adaptiverouting.Sample{ChannelID: a.channelID, Model: a.generation.model, Outcome: outcome, Status: a.status, RetryAfter: a.retryAfter}
+	if a.stream && !a.first.IsZero() && !a.first.Before(a.started) {
+		sample.TTFT = a.first.Sub(a.started)
+		if a.last.After(a.first) {
+			sample.Generation, sample.OutputTokens = a.last.Sub(a.first), a.routingTokens
+		}
+	}
+	adaptiverouting.Default.Record(sample, time.Now())
 	usage := a.promptUsage
 	a.mu.Unlock()
 	a.generation.mu.Lock()
@@ -288,6 +313,9 @@ func (g *Generation) FinishSite(status int) {
 		return
 	}
 	g.finished = true
+	if g.monitor == nil {
+		return
+	}
 	g.inFlight.Dec()
 	g.monitor.observeGeneration(g.metricModel, g.metricTenantID, "site", 0, 0, g.stream, g.started, g.first, g.last, g.tokens, status, g.outcome, g.promptUsage)
 }
@@ -331,4 +359,24 @@ func (m *Metrics) observeGeneration(model, tenantID, scope string, channelID, ch
 		m.generationTPS.WithLabelValues(scope, channel, provider, model, tenantID).Observe(1 / interval)
 	}
 	m.generationSamples.WithLabelValues(scope, channel, provider, model, tenantID, reason).Inc()
+}
+
+// SetRoutingOutputTokens accepts only reported output usage whose content and
+// timing match. Missing, estimated and hidden-reasoning usage is not TPS evidence.
+func (a *ProviderAttempt) SetRoutingOutputTokens(tokens int64) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	a.routingTokens = max(0, tokens)
+	a.mu.Unlock()
+}
+
+func (a *ProviderAttempt) SetRetryAfter(value string) {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	a.retryAfter = value
+	a.mu.Unlock()
 }

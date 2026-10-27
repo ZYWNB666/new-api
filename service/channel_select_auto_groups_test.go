@@ -5,10 +5,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/adaptiverouting"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
@@ -126,4 +129,54 @@ func TestCacheGetRandomSatisfiedChannelUsesTokenAutoGroupsWhenGlobalAutoIsEmpty(
 	assert.Equal(t, 2102, second.Id)
 	assert.Equal(t, "default", selectedGroup)
 	assert.Equal(t, "default", common.GetContextKeyString(ctx, constant.ContextKeyAutoGroup))
+}
+
+func TestAdaptiveRoutingIsOptInAndPreservesModelAndPriorityBoundaries(t *testing.T) {
+	db := setupChannelSelectAutoGroupsTest(t)
+	oldStore := adaptiverouting.Default
+	adaptiverouting.Default = adaptiverouting.NewStore()
+	t.Cleanup(func() { adaptiverouting.Default = oldStore })
+	createChannelSelectAutoGroupsChannel(t, db, 3101, "default", "glm-5.3")
+	createChannelSelectAutoGroupsChannel(t, db, 3102, "default", "glm-5.3")
+	createChannelSelectAutoGroupsChannel(t, db, 3103, "vip", "glm-5.3")
+	model.InitChannelCache()
+	now := time.Now()
+	for _, id := range []int{3101, 3103} {
+		adaptiverouting.Default.Record(adaptiverouting.Sample{ChannelID: id, Model: "glm-5.3", Outcome: "failure", Status: 429, RetryAfter: "60"}, now)
+	}
+	for _, cached := range []bool{true, false} {
+		t.Run(fmt.Sprint(cached), func(t *testing.T) {
+			common.MemoryCacheEnabled = cached
+			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+			common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+			common.SetContextKey(ctx, constant.ContextKeyUserSetting, dto.UserSetting{AdaptiveRouting: true})
+			selected, group, err := CacheGetRandomSatisfiedChannel(&RetryParam{Ctx: ctx, TokenGroup: "default", ModelName: "glm-5.3"})
+			require.NoError(t, err)
+			require.NotNil(t, selected)
+			assert.Equal(t, 3102, selected.Id)
+			assert.Equal(t, "default", group)
+			common.SetContextKey(ctx, constant.ContextKeyTokenAutoGroups, []string{"vip", "default"})
+			selected, group, err = CacheGetRandomSatisfiedChannel(&RetryParam{Ctx: ctx, TokenGroup: "auto", ModelName: "glm-5.3"})
+			require.NoError(t, err)
+			require.NotNil(t, selected)
+			assert.Equal(t, 3102, selected.Id)
+			assert.Equal(t, "default", group, "a rate-limited auto group can fall back to the next allowed group")
+			// A disabled user still uses the original selector, even when all routes
+			// have adaptive health penalties.
+			adaptiverouting.Default.Record(adaptiverouting.Sample{ChannelID: 3102, Model: "glm-5.3", Outcome: "failure", Status: 429, RetryAfter: "60"}, now)
+			common.SetContextKey(ctx, constant.ContextKeyUserSetting, dto.UserSetting{})
+			selected, _, err = CacheGetRandomSatisfiedChannel(&RetryParam{Ctx: ctx, TokenGroup: "default", ModelName: "glm-5.3"})
+			require.NoError(t, err)
+			require.NotNil(t, selected)
+			common.SetContextKey(ctx, constant.ContextKeyUserSetting, dto.UserSetting{AdaptiveRouting: true})
+			_, _, err = CacheGetRandomSatisfiedChannel(&RetryParam{Ctx: ctx, TokenGroup: "default", ModelName: "glm-5.3"})
+			var limited *adaptiverouting.RateLimitedError
+			require.ErrorAs(t, err, &limited)
+			// Reset between cache paths without changing configured channel weights.
+			adaptiverouting.Default = adaptiverouting.NewStore()
+			for _, id := range []int{3101, 3103} {
+				adaptiverouting.Default.Record(adaptiverouting.Sample{ChannelID: id, Model: "glm-5.3", Outcome: "failure", Status: 429, RetryAfter: "60"}, now)
+			}
+		})
+	}
 }

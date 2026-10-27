@@ -17,6 +17,8 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/adaptiverouting"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis/v8"
@@ -605,4 +607,98 @@ func TestManageUserQuotaCacheUsesCommittedIntegerDifference(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAdaptiveRoutingAdminPolicyIsPrivateAndCannotBeChangedBySelf(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	require.NoError(t, authz.Init(db))
+	user := model.User{Username: "routing-user", Password: "unused-hash", Group: "default", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AuthVersion: 1}
+	user.SetSetting(dto.UserSetting{Language: "ja"})
+	require.NoError(t, db.Create(&user).Error)
+
+	for _, enabled := range []bool{true, false, true} {
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodPut, "/api/user/", strings.NewReader(fmt.Sprintf(`{"id":%d,"username":"routing-user","group":"default","adaptive_routing":%t}`, user.Id, enabled)))
+		c.Set("id", 9999)
+		c.Set("role", common.RoleRootUser)
+		UpdateUser(c)
+		require.Contains(t, recorder.Body.String(), `"success":true`)
+		require.NoError(t, db.First(&user, user.Id).Error)
+		assert.Equal(t, enabled, user.GetSetting().AdaptiveRouting)
+		assert.Equal(t, "ja", user.GetSetting().Language)
+		assert.EqualValues(t, 1, user.AuthVersion, "routing preference does not change authentication assurance")
+	}
+
+	self := buildSelfUserData(&user)
+	assert.NotContains(t, self, "adaptive_routing")
+	assert.NotContains(t, self["setting"], "adaptive_routing")
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/user/1", nil)
+	c.Params = gin.Params{{Key: "id", Value: strconv.Itoa(user.Id)}}
+	c.Set("role", common.RoleRootUser)
+	GetUser(c)
+	assert.Contains(t, recorder.Body.String(), `"adaptive_routing":true`)
+
+	recorder = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/user/self", strings.NewReader(`{"language":"en","adaptive_routing":false,"setting":"{\"adaptive_routing\":false}"}`))
+	c.Set("id", user.Id)
+	UpdateSelf(c)
+	require.Contains(t, recorder.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.True(t, user.GetSetting().AdaptiveRouting)
+	assert.Equal(t, "en", user.GetSetting().Language)
+	require.NoError(t, model.UpdateUserSetting(user.Id, dto.UserSetting{Language: "fr", AdaptiveRouting: false}))
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.True(t, user.GetSetting().AdaptiveRouting)
+
+	// A forged direct call still fails the controller's target-role check. The
+	// management route additionally requires administrator authorization.
+	recorder = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/user/", strings.NewReader(fmt.Sprintf(`{"id":%d,"username":"routing-user","group":"default","adaptive_routing":false}`, user.Id)))
+	c.Set("role", common.RoleCommonUser)
+	UpdateUser(c)
+	assert.NotContains(t, recorder.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.True(t, user.GetSetting().AdaptiveRouting)
+}
+
+func TestAdaptiveRoutingDatabaseSelectionKeepsEligibilityAndConfiguredWeights(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Channel{}, &model.Ability{}))
+	previousCache, previousStore := common.MemoryCacheEnabled, adaptiverouting.Default
+	common.MemoryCacheEnabled = false
+	adaptiverouting.Default = adaptiverouting.NewStore()
+	t.Cleanup(func() { common.MemoryCacheEnabled, adaptiverouting.Default = previousCache, previousStore })
+	now := time.Now()
+	priority, weight := int64(0), uint(100)
+	for _, entry := range []struct {
+		id      int
+		group   string
+		enabled bool
+	}{{1, "default", true}, {2, "default", true}, {3, "vip", true}, {4, "default", false}} {
+		require.NoError(t, db.Create(&model.Channel{Id: entry.id, Type: 1, Name: fmt.Sprintf("route-%d", entry.id), Key: "unused", Group: entry.group, Models: "glm-5.3", Status: common.ChannelStatusEnabled, Priority: &priority, Weight: &weight}).Error)
+		require.NoError(t, db.Create(&model.Ability{ChannelId: entry.id, Group: entry.group, Model: "glm-5.3", Enabled: entry.enabled, Priority: &priority, Weight: weight}).Error)
+	}
+	adaptiverouting.Default.Record(adaptiverouting.Sample{ChannelID: 1, Model: "glm-5.3", Status: 429, Outcome: "failure", RetryAfter: "30"}, now)
+	selected, err := model.GetRandomSatisfiedChannel("default", "glm-5.3", 0, nil, true)
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	assert.Equal(t, 2, selected.Id)
+	assert.Equal(t, 100, selected.GetWeight())
+	adaptiverouting.Default.Record(adaptiverouting.Sample{ChannelID: 2, Model: "glm-5.3", Status: 429, Outcome: "failure", RetryAfter: "30"}, now)
+	_, err = model.GetRandomSatisfiedChannel("default", "glm-5.3", 0, nil, true)
+	var limited *adaptiverouting.RateLimitedError
+	require.ErrorAs(t, err, &limited)
+	selected, err = model.GetRandomSatisfiedChannel("default", "glm-5.3", 0, nil)
+	require.NoError(t, err)
+	require.NotNil(t, selected, "disabled preference still uses legacy selection")
+	assert.Contains(t, []int{1, 2}, selected.Id)
+	var stored model.Channel
+	require.NoError(t, db.First(&stored, 1).Error)
+	assert.Equal(t, 100, stored.GetWeight())
 }

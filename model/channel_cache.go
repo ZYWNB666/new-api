@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/pkg/adaptiverouting"
 	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
@@ -119,10 +120,11 @@ func GetRandomSatisfiedChannel(
 	model string,
 	retry int,
 	filters []dto.ChannelFilter,
+	adaptive ...bool,
 ) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry, filters)
+		return GetChannel(group, model, retry, filters, adaptive...)
 	}
 
 	channelSyncLock.RLock()
@@ -141,7 +143,7 @@ func GetRandomSatisfiedChannel(
 		return nil, nil
 	}
 
-	if len(channels) == 1 {
+	if len(channels) == 1 && (len(adaptive) == 0 || !adaptive[0]) {
 		if channel, ok := channelsIDM[channels[0]]; ok {
 			return channel, nil
 		}
@@ -197,6 +199,14 @@ func GetRandomSatisfiedChannel(
 	} else if sumWeight/len(targetChannels) < 10 {
 		// when the average weight is less than 10, set smoothing factor to 100
 		smoothingFactor = 100
+	}
+
+	if len(adaptive) > 0 && adaptive[0] {
+		weights := make([]float64, len(targetChannels))
+		for i, channel := range targetChannels {
+			weights[i] = float64(channel.GetWeight()*smoothingFactor + smoothingAdjustment)
+		}
+		return selectAdaptiveChannel(targetChannels, model, weights)
 	}
 
 	// Calculate the total weight of all channels up to endIdx
@@ -306,4 +316,34 @@ func CacheUpdateChannel(channel *Channel) {
 	// updatePricingLock while holding channelSyncLock would be an AB-BA deadlock.
 	channelSyncLock.Unlock()
 	InvalidatePricingCache()
+}
+
+// selectAdaptiveChannel keeps the existing candidate and priority boundaries.
+func selectAdaptiveChannel(channels []*Channel, modelName string, weights []float64) (*Channel, error) {
+	candidates := make([]adaptiverouting.Candidate, len(channels))
+	for i, channel := range channels {
+		candidates[i] = adaptiverouting.Candidate{ID: channel.Id, Weight: weights[i]}
+	}
+	adjusted, err := adaptiverouting.Default.Weights(modelName, candidates, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	total := 0.0
+	for _, weight := range adjusted {
+		total += weight
+	}
+	if total <= 0 {
+		adjusted = weights
+		for _, weight := range weights {
+			total += weight
+		}
+	}
+	pick := rand.Float64() * total
+	for i, weight := range adjusted {
+		pick -= weight
+		if weight > 0 && pick < 0 {
+			return channels[i], nil
+		}
+	}
+	return nil, errors.New("no weighted channel available")
 }

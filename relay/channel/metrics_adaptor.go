@@ -25,10 +25,6 @@ func (a *MeteredAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, 
 		return nil, err
 	}
 	info.MarkGatewaySent()
-	monitor := metrics.Current()
-	if monitor == nil {
-		return a.Adaptor.DoRequest(c, info, body)
-	}
 	a.attempt = info.BeginProviderMetrics(c)
 	returned := false
 	defer func() {
@@ -40,6 +36,7 @@ func (a *MeteredAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, 
 	returned = true
 	if resp, ok := response.(*http.Response); ok && resp != nil {
 		a.attempt.SetStatus(resp.StatusCode)
+		a.attempt.SetRetryAfter(resp.Header.Get("Retry-After"))
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			a.attempt.Finish(0, "failure")
 		}
@@ -49,7 +46,8 @@ func (a *MeteredAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, 
 		if errors.As(err, &statusError) {
 			a.attempt.SetStatus(statusError.HTTPStatusCode())
 		}
-		a.attempt.Finish(0, "failure")
+		apiErr := types.NewError(err, types.ErrorCodeDoRequestFailed)
+		a.attempt.Finish(0, string(perfmetrics.ClassifyRelayOutcome(c.Request.Context(), info, apiErr)))
 	}
 	return response, err
 }
@@ -79,6 +77,8 @@ func (a *MeteredAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *r
 			var statusError interface{ HTTPStatusCode() int }
 			if errors.As(apiErr, &statusError) {
 				a.attempt.SetStatus(statusError.HTTPStatusCode())
+			} else {
+				a.attempt.SetStatus(apiErr.StatusCode)
 			}
 		} else {
 			a.attempt.SetStatus(http.StatusOK)
@@ -89,6 +89,17 @@ func (a *MeteredAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *r
 	if value, ok := usage.(*dto.Usage); ok && value != nil {
 		tokens = int64(value.CompletionTokens)
 		info.ReportPromptCacheUsage(value)
+		details := value.CompletionTokenDetails
+		incompatibleOutput := details.ReasoningTokens > 0 || details.AudioTokens > 0 || details.ImageTokens > 0
+		if output := value.OutputTokensDetails; output != nil {
+			incompatibleOutput = incompatibleOutput || output.ReasoningTokens > 0 || output.AudioTokens > 0 || output.ImageTokens > 0
+		}
+		if (value.BillingUsage == nil || !value.BillingUsage.Estimated) && !incompatibleOutput {
+			a.attempt.SetRoutingOutputTokens(int64(value.CompletionTokens))
+		}
+	}
+	if stream := info.StreamStatus.OutcomeSnapshot(); stream.ErrorStatus != 0 {
+		info.GenerationMetrics.SetProviderStatus(stream.ErrorStatus)
 	}
 	a.attempt.Finish(tokens, string(perfmetrics.ClassifyRelayOutcome(c.Request.Context(), info, apiErr)))
 	return usage, apiErr

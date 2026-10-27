@@ -77,6 +77,7 @@ func resolveUserSortOptions(sortOptions []UserSortOptions) UserSortOptions {
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
 type User struct {
+	AdaptiveRouting      *bool                      `json:"adaptive_routing,omitempty" gorm:"-:all"`
 	Id                   int                        `json:"id"`
 	Username             string                     `json:"username" gorm:"unique;index" validate:"max=20"`
 	Password             string                     `json:"password" gorm:"not null;" validate:"min=8,max=128"`
@@ -200,12 +201,21 @@ func UpdateUserSetting(userId int, setting dto.UserSetting) error {
 	if userId == 0 {
 		return errors.New("id 为空！")
 	}
-	settingBytes, err := common.Marshal(setting)
-	if err != nil {
-		return err
-	}
-	settingValue := string(settingBytes)
-	if err = DB.Model(&User{}).Where("id = ?", userId).Update("setting", settingValue).Error; err != nil {
+	var settingValue string
+	// Self-service settings cannot change an administrator's routing policy.
+	if err := DB.Transaction(func(tx *gorm.DB) error {
+		var current User
+		if err := lockForUpdate(tx).First(&current, userId).Error; err != nil {
+			return err
+		}
+		setting.AdaptiveRouting = current.GetSetting().AdaptiveRouting
+		encoded, err := common.Marshal(setting)
+		if err != nil {
+			return err
+		}
+		settingValue = string(encoded)
+		return tx.Model(&current).Update("setting", settingValue).Error
+	}); err != nil {
 		return err
 	}
 	return updateUserSettingCache(userId, settingValue)
@@ -898,8 +908,17 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 	}
 
 	current := User{}
-	if err = tx.First(&current, user.Id).Error; err != nil {
+	if err = lockForUpdate(tx).First(&current, user.Id).Error; err != nil {
 		return err
+	}
+	if newUser.AdaptiveRouting != nil {
+		setting := current.GetSetting()
+		setting.AdaptiveRouting = *newUser.AdaptiveRouting
+		encoded, err := common.Marshal(setting)
+		if err != nil {
+			return err
+		}
+		updates["setting"] = string(encoded)
 	}
 	authChanged := (updatePassword && current.Password != newUser.Password) || current.Group != newUser.Group
 	if authChanged {

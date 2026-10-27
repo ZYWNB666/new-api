@@ -399,6 +399,7 @@ func GetUser(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserNoPermissionSameLevel)
 		return
 	}
+	user.AdaptiveRouting = common.GetPointer(user.GetSetting().AdaptiveRouting)
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -490,6 +491,12 @@ func GetSelf(c *gin.Context) {
 // administrator-only remarks.
 func buildSelfUserData(user *model.User) map[string]any {
 	userSetting := user.GetSetting()
+	publicSetting := user.Setting
+	if userSetting.AdaptiveRouting {
+		userSetting.AdaptiveRouting = false
+		encoded, _ := common.Marshal(userSetting)
+		publicSetting = string(encoded)
+	}
 	permissions := calculateUserPermissions(user.Role)
 	permissions["admin_permissions"] = authz.Capabilities(user.Id, user.Role)
 	return map[string]any{
@@ -515,7 +522,7 @@ func buildSelfUserData(user *model.User) map[string]any {
 		"aff_history_quota": user.AffHistoryQuota,
 		"inviter_id":        user.InviterId,
 		"linux_do_id":       user.LinuxDOId,
-		"setting":           user.Setting,
+		"setting":           publicSetting,
 		"stripe_customer":   user.StripeCustomer,
 		"sidebar_modules":   userSetting.SidebarModules, // 正确提取sidebar_modules字段
 		"permissions":       permissions,

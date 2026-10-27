@@ -577,7 +577,11 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 		var usedSource operation_setting.ChannelAffinityKeySource
 		for _, src := range rule.KeySources {
 			if src.Type == "automatic" {
-				affinityValue = automaticChannelAffinityKey(c, modelName, usingGroup)
+				var fromPrompt bool
+				affinityValue, fromPrompt = automaticChannelAffinityKey(c, modelName, usingGroup)
+				if fromPrompt {
+					src.Type = "prompt_hash"
+				}
 			} else {
 				affinityValue = extractChannelAffinityValue(c, src)
 			}

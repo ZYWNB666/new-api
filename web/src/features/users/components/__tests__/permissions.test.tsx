@@ -43,7 +43,11 @@ const label = "View other accounts' audit logs"
 const description =
   'View audit records from user and admin roles. Root records are always excluded.'
 
-function renderPermissions(viewerRole: number, allowed?: boolean) {
+function renderPermissions(
+  viewerRole: number,
+  allowed?: boolean,
+  adaptiveRouting = false
+) {
   useAuthStore
     .getState()
     .auth.setUser({ id: 1, username: 'operator', role: viewerRole })
@@ -79,6 +83,7 @@ function renderPermissions(viewerRole: number, allowed?: boolean) {
         success: true,
         data: {
           ...target,
+          adaptive_routing: adaptiveRouting,
           admin_permissions:
             allowed === undefined ? {} : { audit: { read: allowed } },
         },
@@ -143,3 +148,30 @@ it('admin cannot edit the audit permission even when the catalog is available', 
     screen.queryByRole('checkbox', { name: new RegExp(label) })
   ).not.toBeInTheDocument()
 })
+
+it.each([false, true])(
+  'administrator can toggle adaptive routing and save it (previous=%s)',
+  async (enabled) => {
+    const put = vi
+      .spyOn(api, 'put')
+      .mockResolvedValue({ data: { success: true } })
+    renderPermissions(100, undefined, enabled)
+    await screen.findByDisplayValue('Managed admin')
+    const toggle = await screen.findByRole('switch', {
+      name: 'Adaptive routing',
+    })
+    await waitFor(() =>
+      expect(toggle).toHaveAttribute('aria-checked', String(enabled))
+    )
+    toggle.focus()
+    await userEvent.keyboard(' ')
+    expect(toggle).toHaveAttribute('aria-checked', String(!enabled))
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() =>
+      expect(put).toHaveBeenCalledWith(
+        '/api/user/',
+        expect.objectContaining({ id: 2, adaptive_routing: !enabled })
+      )
+    )
+  }
+)

@@ -110,9 +110,10 @@ func GetChannel(
 	model string,
 	retry int,
 	filters []dto.ChannelFilter,
+	adaptive ...bool,
 ) (*Channel, error) {
 	var abilities []Ability
-	err := DB.Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, model, true).Order("priority DESC, weight DESC").Find(&abilities).Error
+	err := DB.Where(map[string]any{"group": group, "model": model, "enabled": true}).Order("priority DESC, weight DESC").Find(&abilities).Error
 	if err != nil {
 		return nil, err
 	}
@@ -138,6 +139,23 @@ func GetChannel(
 		abilities = lo.Filter(abilities, func(ability Ability, _ int) bool {
 			return ability.Priority == nil && targetPriority == 0 || ability.Priority != nil && *ability.Priority == targetPriority
 		})
+	}
+	if len(adaptive) > 0 && adaptive[0] && len(abilities) > 0 {
+		ids := make([]int, len(abilities))
+		weightsByID := make(map[int]float64, len(abilities))
+		for i, ability := range abilities {
+			ids[i] = ability.ChannelId
+			weightsByID[ability.ChannelId] = float64(ability.Weight) + 10
+		}
+		var channels []*Channel
+		if err := DB.Where("id IN ?", ids).Find(&channels).Error; err != nil {
+			return nil, err
+		}
+		weights := make([]float64, len(channels))
+		for i, channel := range channels {
+			weights[i] = weightsByID[channel.Id]
+		}
+		return selectAdaptiveChannel(channels, model, weights)
 	}
 	channel := Channel{}
 	if len(abilities) > 0 {

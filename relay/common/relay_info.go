@@ -1003,7 +1003,7 @@ func (info *RelayInfo) SetFirstResponseTime() {
 // InitGenerationMetrics initializes site metrics before local quota or capacity checks.
 func (info *RelayInfo) InitGenerationMetrics(c *gin.Context) {
 	monitor := metrics.Current()
-	if monitor == nil || info.GenerationMetrics != nil {
+	if info.GenerationMetrics != nil {
 		return
 	}
 	started := info.StartTime

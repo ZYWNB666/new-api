@@ -1,6 +1,8 @@
 package dto
 
 type UserSetting struct {
+	// AdaptiveRouting is administrator-managed and must be stripped from self DTOs.
+	AdaptiveRouting                  bool    `json:"adaptive_routing,omitempty"`
 	NotifyType                       string  `json:"notify_type,omitempty"`                          // QuotaWarningType 额度预警类型
 	QuotaWarningThreshold            float64 `json:"quota_warning_threshold,omitempty"`              // QuotaWarningThreshold 额度预警阈值
 	WebhookUrl                       string  `json:"webhook_url,omitempty"`                          // WebhookUrl webhook地址

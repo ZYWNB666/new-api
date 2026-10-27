@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/adaptiverouting"
 
 	"github.com/QuantumNous/new-api/pkg/metrics"
 	perfmetrics "github.com/QuantumNous/new-api/pkg/perf_metrics"
@@ -463,11 +464,15 @@ func (e nativeStatusError) HTTPStatusCode() int { return e.status }
 
 type sdkMetricsAdaptor struct {
 	relaychannel.Adaptor
-	err   *types.NewAPIError
-	usage *dto.Usage
+	response *http.Response
+	err      *types.NewAPIError
+	usage    *dto.Usage
 }
 
 func (a *sdkMetricsAdaptor) DoRequest(*gin.Context, *relaycommon.RelayInfo, io.Reader) (any, error) {
+	if a.response != nil {
+		return a.response, nil
+	}
 	return nil, nil
 }
 func (a *sdkMetricsAdaptor) DoResponse(*gin.Context, *http.Response, *relaycommon.RelayInfo) (any, *types.NewAPIError) {
@@ -930,4 +935,72 @@ func TestPromptCacheRetriesKeepProviderAttemptsAndFinalSiteUsage(t *testing.T) {
 	assert.Equal(t, float64(80), generationMetric(t, families, "new_api_generation_cached_input_tokens_total", "provider", "7").GetCounter().GetValue())
 	assert.Equal(t, float64(20), generationMetric(t, families, "new_api_generation_cached_input_tokens_total", "provider", "8").GetCounter().GetValue())
 	assert.Equal(t, float64(20), generationMetric(t, families, "new_api_generation_cached_input_tokens_total", "site", "0").GetCounter().GetValue())
+}
+
+func TestAdaptiveRoutingUsesContentTimingWithoutPrometheus(t *testing.T) {
+	oldStore := adaptiverouting.Default
+	adaptiverouting.Default = adaptiverouting.NewStore()
+	t.Cleanup(func() { adaptiverouting.Default = oldStore })
+	var monitor *metrics.Metrics
+	start := time.Now()
+	const content = `{"choices":[{"delta":{"content":"hello"}}]}`
+	for range 10 {
+		generation := monitor.NewGenerationForTenant(start, "routing-timing", 1, true)
+		attempt := generation.BeginAttempt(101, 1, true, start)
+		attempt.SetStatus(200)
+		generation.ObserveProviderPayload(`{"choices":[{"delta":{"role":"assistant"}}]}`, start.Add(time.Millisecond))
+		generation.ObserveProviderPayload(content, start.Add(4*time.Second))
+		generation.ObserveProviderPayload(content, start.Add(5*time.Second))
+		generation.ObserveProviderPayload(`{"choices":[],"usage":{"completion_tokens":41}}`, start.Add(30*time.Second))
+		attempt.SetRoutingOutputTokens(41)
+		attempt.Finish(41, "success")
+		attempt.Finish(41, "failure") // finish is idempotent
+		generation.FinishSite(200)
+	}
+	for range 10 {
+		adaptiverouting.Default.Record(adaptiverouting.Sample{ChannelID: 102, Model: "routing-timing", Outcome: "success", TTFT: time.Second, Generation: time.Second, OutputTokens: 41}, time.Now())
+	}
+	weights, err := adaptiverouting.Default.Weights("routing-timing", []adaptiverouting.Candidate{{ID: 101, Weight: 1}, {ID: 102, Weight: 1}}, time.Now())
+	require.NoError(t, err)
+	assert.Less(t, weights[0], weights[1], "role and usage events must not create a falsely fast TTFT")
+	assert.Greater(t, weights[0], 0.0)
+}
+
+func TestAdaptiveRoutingRecognizesHTTPAndProtocolRateLimits(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		stream bool
+		apiErr *types.NewAPIError
+	}{
+		{name: "HTTP 429", status: 429},
+		{name: "SDK 429", apiErr: types.NewErrorWithStatusCode(errors.New("upstream limited"), types.ErrorCodeAwsInvokeError, 429)},
+		{name: "HTTP 200 with streaming 429", status: 200, stream: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			oldStore := adaptiverouting.Default
+			adaptiverouting.Default = adaptiverouting.NewStore()
+			t.Cleanup(func() { adaptiverouting.Default = oldStore })
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			info := &relaycommon.RelayInfo{StartTime: time.Now(), OriginModelName: "adaptive-429", IsStream: tc.stream, ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 501, ChannelType: 1}}
+			delegate := &sdkMetricsAdaptor{err: tc.apiErr}
+			if tc.status != 0 {
+				delegate.response = &http.Response{StatusCode: tc.status, Header: http.Header{"Retry-After": []string{"17"}}}
+			}
+			adapter := &relaychannel.MeteredAdaptor{Adaptor: delegate}
+			_, err := adapter.DoRequest(c, info, nil)
+			require.NoError(t, err)
+			if tc.stream {
+				info.StreamStatus = relaycommon.NewStreamStatus()
+				info.StreamStatus.MarkFailed("rate_limit_exceeded", "rate_limit_error", 429)
+			}
+			if tc.status != 429 {
+				_, _ = adapter.DoResponse(c, delegate.response, info)
+			}
+			weights, err := adaptiverouting.Default.Weights("adaptive-429", []adaptiverouting.Candidate{{ID: 501, Weight: 1}, {ID: 502, Weight: 1}}, time.Now())
+			require.NoError(t, err)
+			assert.Equal(t, []float64{0, 1}, weights)
+		})
+	}
 }

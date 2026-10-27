@@ -524,6 +524,19 @@ export function useCommonLogsColumns(
                           <p className='font-medium'>{t('Channel Affinity')}</p>
                           <p>
                             {t('Rule')}: {affinity.rule_name || '-'}
+                            {affinity.key_source === 'prompt_hash' &&
+                              affinity.key_fp && (
+                                <>
+                                  {' '}
+                                  (
+                                  {t('PromptHash: {{hash}}', {
+                                    hash: sensitiveVisible
+                                      ? affinity.key_fp
+                                      : '••••',
+                                  })}
+                                  )
+                                </>
+                              )}
                           </p>
                           <p>
                             {t('Group')}:{' '}

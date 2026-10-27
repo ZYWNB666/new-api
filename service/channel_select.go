@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -11,7 +12,9 @@ import (
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/adaptiverouting"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
+	relaydto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
 )
@@ -114,9 +117,12 @@ func (p *RetryParam) ResetRetryNextTry() {
 func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, error) {
 	var channel *model.Channel
 	var err error
+	var rateLimitErr error
 	selectGroup := param.TokenGroup
 	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
 	filters := GetChannelConstraints(param.Ctx).Filters
+	setting, _ := common.GetContextKeyType[relaydto.UserSetting](param.Ctx, constant.ContextKeyUserSetting)
+	adaptive := setting.AdaptiveRouting
 
 	if param.TokenGroup == "auto" {
 		autoGroups := GetRequestAutoGroups(param.Ctx, userGroup)
@@ -147,12 +153,20 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
-			channel, _ = model.GetRandomSatisfiedChannel(
+			channel, err = model.GetRandomSatisfiedChannel(
 				autoGroup,
 				param.ModelName,
 				priorityRetry,
 				filters,
+				adaptive,
 			)
+			if err != nil {
+				var limited *adaptiverouting.RateLimitedError
+				if !errors.As(err, &limited) {
+					return nil, autoGroup, err
+				}
+				rateLimitErr = err
+			}
 			if channel == nil {
 				// Current group has no available channel for this model, try next group
 				// 当前分组没有该模型的可用渠道，尝试下一个分组
@@ -195,10 +209,14 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			param.ModelName,
 			param.GetRetry(),
 			filters,
+			adaptive,
 		)
 		if err != nil {
 			return nil, param.TokenGroup, err
 		}
+	}
+	if channel == nil && rateLimitErr != nil {
+		return nil, selectGroup, rateLimitErr
 	}
 	return channel, selectGroup, nil
 }
@@ -303,6 +321,9 @@ func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam
 				FilterKind: kind, Channel: channel,
 			}
 		}
+		if backoff := adaptiveChannelBackoff(c, modelName, channel.Id); backoff != nil {
+			return nil, "", backoff
+		}
 		return channel, "", nil
 	}
 
@@ -316,6 +337,20 @@ func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam
 			affinitySatisfied := false
 			if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled {
 				affinitySatisfied, _ = model.ChannelSatisfiesFilters(preferred, modelName, constraints.Filters)
+			}
+			if affinitySatisfied {
+				setting, _ := common.GetContextKeyType[relaydto.UserSetting](c, constant.ContextKeyUserSetting)
+				if setting.AdaptiveRouting {
+					if RequestPolicy(c).SessionMode == "strict" {
+						if backoff := adaptiveChannelBackoff(c, modelName, preferred.Id); backoff != nil {
+							return nil, usingGroup, backoff
+						}
+					} else {
+						// A soft binding cannot bypass comparison with eligible peers. The
+						// weighted selector evaluates their relative performance together.
+						affinitySatisfied = false
+					}
+				}
 			}
 			if affinitySatisfied {
 				if usingGroup == "auto" {
@@ -350,6 +385,11 @@ func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam
 		var err error
 		channel, selectGroup, err = CacheGetRandomSatisfiedChannel(retry)
 		if err != nil {
+			var limited *adaptiverouting.RateLimitedError
+			if errors.As(err, &limited) {
+				c.Header("Retry-After", limited.RetryAfter(time.Now()))
+				return nil, selectGroup, &ChannelSelectError{StatusCode: http.StatusTooManyRequests, Code: "upstream_rate_limited", Message: limited.Error()}
+			}
 			showGroup := usingGroup
 			if usingGroup == "auto" {
 				showGroup = fmt.Sprintf("auto(%s)", selectGroup)
@@ -389,4 +429,20 @@ func pinnedChannelUnavailable(pin dto.ChannelPin, statusCode int, messageID stri
 // trail, which the retry log and the consume log's admin_info both read.
 func AppendUsedChannel(c *gin.Context, channelID int) {
 	c.Set("use_channel", append(c.GetStringSlice("use_channel"), fmt.Sprintf("%d", channelID)))
+}
+
+// adaptiveChannelBackoff enforces upstream backoff for channels selected through
+// a binding instead of the weighted selector. It never overrides that binding.
+func adaptiveChannelBackoff(c *gin.Context, modelName string, channelID int) *ChannelSelectError {
+	setting, _ := common.GetContextKeyType[relaydto.UserSetting](c, constant.ContextKeyUserSetting)
+	if !setting.AdaptiveRouting {
+		return nil
+	}
+	_, err := adaptiverouting.Default.Weights(modelName, []adaptiverouting.Candidate{{ID: channelID, Weight: 1}}, time.Now())
+	var limited *adaptiverouting.RateLimitedError
+	if !errors.As(err, &limited) {
+		return nil
+	}
+	c.Header("Retry-After", limited.RetryAfter(time.Now()))
+	return &ChannelSelectError{StatusCode: http.StatusTooManyRequests, Code: "upstream_rate_limited", Message: limited.Error()}
 }
