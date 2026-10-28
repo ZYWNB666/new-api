@@ -30,7 +30,11 @@ import { usageLogSchema } from '../../data/schema'
 import { useCommonLogsColumns } from '../columns/common-logs-columns'
 import { UsageLogsProvider, useUsageLogsContext } from '../usage-logs-provider'
 
-function ChannelFixture(props: { source: string; hash?: string }) {
+function ChannelFixture(props: {
+  source: string
+  hash?: string
+  status?: string
+}) {
   const columns = useCommonLogsColumns(true, false)
   const context = useUsageLogsContext()
   const table = useReactTable({
@@ -57,6 +61,12 @@ function ChannelFixture(props: { source: string; hash?: string }) {
               rule_name: 'automatic session',
               key_source: props.source,
               key_fp: props.hash,
+              binding_status: props.status,
+              cache_hit: props.status === 'adaptive_bypass',
+              cached_channel_id:
+                props.status === 'adaptive_bypass' ? 9 : undefined,
+              session_mode: 'prefer',
+              adaptive_routing: true,
               using_group: 'default',
             },
           },
@@ -81,7 +91,7 @@ function ChannelFixture(props: { source: string; hash?: string }) {
   )
 }
 
-function renderChannel(source: string, hash?: string) {
+function renderChannel(source: string, hash?: string, status?: string) {
   render(
     <QueryClientProvider
       client={
@@ -89,7 +99,7 @@ function renderChannel(source: string, hash?: string) {
       }
     >
       <UsageLogsProvider>
-        <ChannelFixture source={source} hash={hash} />
+        <ChannelFixture source={source} hash={hash} status={status} />
       </UsageLogsProvider>
     </QueryClientProvider>
   )
@@ -131,4 +141,32 @@ it('masks the prompt fingerprint when sensitive data is hidden', async () => {
     await screen.findByText('Rule: automatic session (PromptHash: ••••)')
   ).toBeVisible()
   expect(screen.queryByText(/a1b2c3d4/)).not.toBeInTheDocument()
+})
+
+it('shows a generated prompt hash when the binding is missing', async () => {
+  renderChannel('prompt_hash', 'cafebabe', 'miss')
+  await userEvent.hover(screen.getByText('#5'))
+  expect(
+    await screen.findByText('Rule: automatic session (PromptHash: cafebabe)')
+  ).toBeVisible()
+  expect(screen.getByText('Binding decision: No cached binding')).toBeVisible()
+})
+
+it('distinguishes a cache hit from a binding bypassed by adaptive routing', async () => {
+  renderChannel('prompt_hash', 'cafebabe', 'adaptive_bypass')
+  await userEvent.hover(screen.getByText('#5'))
+  expect(await screen.findByText('Binding lookup: Cache hit')).toBeVisible()
+  expect(screen.getByText('Bound channel: #9')).toBeVisible()
+  expect(
+    screen.getByText('Binding decision: Adaptive routing takes precedence')
+  ).toBeVisible()
+  await userEvent.unhover(screen.getByText('#5'))
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Hide sensitive data' })
+  )
+  await userEvent.hover(screen.getByText('#5'))
+  expect(await screen.findByText('Bound channel: ••••')).toBeVisible()
+  expect(
+    screen.queryByText(/cafebabe|Bound channel: #9/)
+  ).not.toBeInTheDocument()
 })

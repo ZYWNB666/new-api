@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/cachex"
 	"github.com/QuantumNous/new-api/relaykit/dto"
@@ -628,16 +629,20 @@ func GetPreferredChannelByAffinity(c *gin.Context, modelName string, usingGroup 
 		})
 
 		state.AddEvent(PolicyEvent{Decision: PolicyDecision{Action: "match", Reason: "session_rule_matched", Source: "session_rule"}})
+		recordChannelAffinityDecision(c, "miss", 0)
 		if state.SessionMode == "off" {
+			recordChannelAffinityDecision(c, "off", 0)
 			return 0, false
 		}
 		cache := getChannelAffinityCache()
 		channelID, found, err := cache.Get(cacheKeySuffix)
 		if err != nil {
+			recordChannelAffinityDecision(c, "cache_error", 0)
 			common.SysError(fmt.Sprintf("channel affinity cache get failed: key=%s, err=%v", cacheKeyFull, err))
 			return 0, false
 		}
 		if found {
+			recordChannelAffinityDecision(c, "hit", channelID)
 			return channelID, true
 		}
 		return 0, false
@@ -695,6 +700,40 @@ func ShouldKeepChannelAffinityOnChannelDisabled() bool {
 	return setting.KeepOnChannelDisabled
 }
 
+// recordChannelAffinityDecision keeps key generation and cache lookup visible even
+// when routing does not adopt the binding. It never records the original key.
+func recordChannelAffinityDecision(c *gin.Context, status string, cachedChannelID int) {
+	meta, ok := getChannelAffinityMeta(c)
+	if !ok {
+		return
+	}
+	value, _ := c.Get(ginKeyChannelAffinityLogInfo)
+	info, _ := value.(map[string]any)
+	if info == nil {
+		setting, _ := common.GetContextKeyType[dto.UserSetting](c, constant.ContextKeyUserSetting)
+		info = map[string]any{
+			"reason": meta.RuleName, "rule_name": meta.RuleName,
+			"using_group": meta.UsingGroup, "model": meta.ModelName,
+			"request_path": meta.RequestPath, "key_source": meta.KeySourceType,
+			"key_key": meta.KeySourceKey, "key_path": meta.KeySourcePath,
+			"key_fp": meta.KeyFingerprint, "session_mode": RequestPolicy(c).SessionMode,
+			"adaptive_routing": setting.AdaptiveRouting,
+		}
+	}
+	info["binding_status"] = status
+	if status == "miss" {
+		info["cache_hit"] = false
+	}
+	if status == "off" || status == "cache_error" {
+		delete(info, "cache_hit")
+	}
+	if cachedChannelID > 0 {
+		info["cache_hit"] = true
+		info["cached_channel_id"] = cachedChannelID
+	}
+	c.Set(ginKeyChannelAffinityLogInfo, info)
+}
+
 func MarkChannelAffinityUsed(c *gin.Context, selectedGroup string, channelID int) {
 	if c == nil || channelID <= 0 {
 		return
@@ -703,22 +742,12 @@ func MarkChannelAffinityUsed(c *gin.Context, selectedGroup string, channelID int
 	if !ok {
 		return
 	}
+	recordChannelAffinityDecision(c, "used", channelID)
 	c.Set(ginKeyChannelAffinitySkipRetry, meta.SkipRetry)
-	info := map[string]any{
-		"reason":         meta.RuleName,
-		"rule_name":      meta.RuleName,
-		"using_group":    meta.UsingGroup,
-		"selected_group": selectedGroup,
-		"model":          meta.ModelName,
-		"request_path":   meta.RequestPath,
-		"channel_id":     channelID,
-		"key_source":     meta.KeySourceType,
-		"key_key":        meta.KeySourceKey,
-		"key_path":       meta.KeySourcePath,
-		"key_hint":       meta.KeyHint,
-		"key_fp":         meta.KeyFingerprint,
-	}
-	c.Set(ginKeyChannelAffinityLogInfo, info)
+	value, _ := c.Get(ginKeyChannelAffinityLogInfo)
+	info := value.(map[string]any)
+	info["selected_group"] = selectedGroup
+	info["channel_id"] = channelID
 }
 
 func AppendChannelAffinityAdminInfo(c *gin.Context, other *model.LogOther) {

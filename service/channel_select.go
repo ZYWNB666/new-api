@@ -333,6 +333,7 @@ func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam
 	if retry.GetRetry() == 0 {
 		if preferredChannelID, found := GetPreferredChannelByAffinity(c, modelName, usingGroup); found {
 			affinityUsable := false
+			recordChannelAffinityDecision(c, "unavailable", preferredChannelID)
 			preferred, err := model.CacheGetChannel(preferredChannelID)
 			affinitySatisfied := false
 			if err == nil && preferred != nil && preferred.Status == common.ChannelStatusEnabled {
@@ -343,12 +344,14 @@ func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam
 				if setting.AdaptiveRouting {
 					if RequestPolicy(c).SessionMode == "strict" {
 						if backoff := adaptiveChannelBackoff(c, modelName, preferred.Id); backoff != nil {
+							recordChannelAffinityDecision(c, "rate_limited", preferred.Id)
 							return nil, usingGroup, backoff
 						}
 					} else {
 						// A soft binding cannot bypass comparison with eligible peers. The
 						// weighted selector evaluates their relative performance together.
 						affinitySatisfied = false
+						recordChannelAffinityDecision(c, "adaptive_bypass", preferred.Id)
 					}
 				}
 			}
@@ -381,6 +384,9 @@ func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam
 		}
 	}
 
+	if retry.GetRetry() > 0 {
+		recordChannelAffinityDecision(c, "retry", 0)
+	}
 	if channel == nil {
 		var err error
 		channel, selectGroup, err = CacheGetRandomSatisfiedChannel(retry)

@@ -47,6 +47,7 @@ import {
 import { pluginUsageSchema } from '@/features/pricing/lib/plugin-pricing'
 import { taskUsageUnitLabel } from '@/features/pricing/lib/task-price-display'
 import type { BillingUsageSchema } from '@/features/pricing/types'
+import { policyLabel } from '@/features/system-settings/request-policies/policy-label'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
@@ -398,6 +399,13 @@ export function useCommonLogsColumns(
 
             const other = parseLogOther(log.other)
             const affinity = other?.admin_info?.channel_affinity
+            let affinitySource = affinity?.key_source || '-'
+            if (affinitySource === 'prompt_hash') {
+              affinitySource = t('Prompt content hash')
+            }
+            if (affinitySource === 'automatic') {
+              affinitySource = t('Explicit session identifier')
+            }
             const rawUseChannel = other?.admin_info?.use_channel ?? []
             const useChannel = Array.isArray(rawUseChannel)
               ? rawUseChannel.map(String).filter(Boolean)
@@ -538,6 +546,60 @@ export function useCommonLogsColumns(
                                 </>
                               )}
                           </p>
+                          {affinity.binding_status && (
+                            <>
+                              <p>
+                                {t('Affinity key source')}: {affinitySource}
+                              </p>
+                              <p>
+                                {t('Session mode')}:{' '}
+                                {policyLabel(t, affinity.session_mode || '-')}
+                              </p>
+                              {affinity.cache_hit != null && (
+                                <p>
+                                  {t('Binding lookup')}:{' '}
+                                  {affinity.cache_hit
+                                    ? t('Cache hit')
+                                    : t('No cached binding')}
+                                </p>
+                              )}
+                              {affinity.cached_channel_id != null && (
+                                <p>
+                                  {t('Bound channel')}:{' '}
+                                  {sensitiveVisible
+                                    ? `#${affinity.cached_channel_id}`
+                                    : '••••'}
+                                </p>
+                              )}
+                              <p>
+                                {t('Binding decision')}:{' '}
+                                {(
+                                  {
+                                    miss: t('No cached binding'),
+                                    hit: t('Binding found'),
+                                    used: t('Binding applied'),
+                                    adaptive_bypass: t(
+                                      'Adaptive routing takes precedence'
+                                    ),
+                                    unavailable: t('Bound channel unavailable'),
+                                    rate_limited: t(
+                                      'Bound channel rate limited'
+                                    ),
+                                    retry: t('Retry re-evaluates routing'),
+                                    off: t('Session affinity disabled'),
+                                    cache_error: t('Binding lookup failed'),
+                                  } as Record<string, string>
+                                )[affinity.binding_status] ||
+                                  affinity.binding_status}
+                              </p>
+                              <p>
+                                {t('Adaptive routing')}:{' '}
+                                {affinity.adaptive_routing
+                                  ? t('Enabled')
+                                  : t('Disabled')}
+                              </p>
+                            </>
+                          )}
                           <p>
                             {t('Group')}:{' '}
                             {sensitiveVisible
