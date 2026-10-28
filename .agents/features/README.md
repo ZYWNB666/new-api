@@ -26,7 +26,7 @@
 | 09 | 请求头日志（脱敏与截断） | 活跃 | [09-request-header-logging.md](09-request-header-logging.md) | `2b92efa58` |
 | 10 | 使用日志计费明细 | 活跃 | [10-charge-breakdown.md](10-charge-breakdown.md) | `3414e7482` |
 | 11 | 响应头品牌标识改写 | 活跃 | [11-response-header-branding.md](11-response-header-branding.md) | `b079e605f` |
-| 12 | Prompt 前缀亲和键（automatic session） | 活跃 | [12-prompt-affinity.md](12-prompt-affinity.md) | `fbb04e5dd` |
+| 12 | Prompt 前缀亲和键与绑定选路诊断 | 活跃 | [12-prompt-affinity.md](12-prompt-affinity.md) | `fbb04e5dd` |
 | 13 | `prompt_cache_options` 字段支持 | 活跃 | [13-prompt-cache-options.md](13-prompt-cache-options.md) | `cf690561a` |
 | 14 | 按用户启用的自适应渠道路由 | 活跃 | [14-adaptive-routing.md](14-adaptive-routing.md) | `a9732a0b4` |
 

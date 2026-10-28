@@ -19,6 +19,7 @@
 - `metrics.ProviderAttempt` 复用有效生成内容的到达时间；Prometheus 未启用时仍采集路由观测。`MeteredAdaptor` 识别 HTTP、SDK 及 HTTP 200 内的协议失败；取消和业务拒绝不计入渠道失败。
 - TPS 只使用可对应的已报告输出用量和内容时间间隔，不把 SSE chunk 当 token。估算、缺失或已知混合推理/多模态的用量不参与 TPS。
 - `model.GetRandomSatisfiedChannel()` 和 `GetChannel()` 在原候选优先级内应用动态权重，覆盖内存缓存与数据库选路。自动分组可以跳过限流分组，尝试下一个有权使用的分组。
+- 日志以 `binding_status = adaptive_bypass` 标明普通亲和让位于自适应比较，同时保留原 `cached_channel_id` 和内容指纹；不将缓存命中误报为实际采用绑定。
 - `SelectChannelForRequest()` 让开启功能的普通亲和请求重新比较候选；严格亲和和显式渠道绑定保留。`adaptiveChannelBackoff()` 对绑定渠道执行限流等待，避免绑定绕过 429 退避。
 - 开关通过既有 `users.setting` TEXT 存储，无新增数据库列。`User.EditWithTx()` 在事务内更新策略；`UpdateUserSetting()` 保留管理员策略，防止自助设置覆盖。`buildSelfUserData()` 过滤该字段，管理员详情单独返回。
 - 管理员界面复用 `UsersMutateDrawer`、既有表单和 `Switch`，文案覆盖七种语言。
@@ -34,6 +35,7 @@
 | 日期 | 提交 | 变更 |
 |---|---|---|
 | 2026-10-27 | `a9732a0b4` | 初始实现：管理员按用户开启，成功率/TTFT/TPS 相对评分、恢复探测与限流退避 |
+| 2026-10-28 | `8aa774789` | 增补自适应绕过亲和、严格绑定限流等诊断，保留键来源与原绑定渠道 |
 
 ## 注意事项
 
