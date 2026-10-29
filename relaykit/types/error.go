@@ -26,7 +26,9 @@ type ClaudeError struct {
 type ErrorType string
 
 const (
-	ErrorTypeNewAPIError     ErrorType = "new_api_error"
+	ErrorTypeAPIError ErrorType = "api_error"
+	// ErrorTypeNewAPIError retains source compatibility with existing callers.
+	ErrorTypeNewAPIError     ErrorType = ErrorTypeAPIError
 	ErrorTypeOpenAIError     ErrorType = "openai_error"
 	ErrorTypeClaudeError     ErrorType = "claude_error"
 	ErrorTypeMidjourneyError ErrorType = "midjourney_error"
@@ -202,6 +204,13 @@ func (e *NewAPIError) ToOpenAIError() OpenAIError {
 			Code:    e.errorCode,
 		}
 	}
+	if result.Type == "new_api_error" {
+		result.Type = string(ErrorTypeAPIError)
+	}
+	switch result.Code {
+	case "new_api_error", ErrorCode("new_api_error"):
+		result.Code = string(ErrorTypeAPIError)
+	}
 	if e.errorCode != ErrorCodeCountTokenFailed {
 		result.Message = kitutil.MaskSensitiveInfo(result.Message)
 	}
@@ -230,6 +239,9 @@ func (e *NewAPIError) ToClaudeError() ClaudeError {
 			Message: e.Error(),
 			Type:    string(e.errorType),
 		}
+	}
+	if result.Type == "new_api_error" {
+		result.Type = string(ErrorTypeAPIError)
 	}
 	if e.errorCode != ErrorCodeCountTokenFailed {
 		result.Message = kitutil.MaskSensitiveInfo(result.Message)
