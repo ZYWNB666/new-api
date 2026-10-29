@@ -41,3 +41,7 @@
 - `go test -race ./controller -run 'TestPublicErrorsUseGenericType|TestTokenFailuresKeepGenericErrorAndAbort' -count=1`、根模块 `go build ./...`、`cd relaykit && GOWORK=off go build ./...` 与 `GOWORK=off go test ./... -count=1` 通过。涉及 relaykit 的后续修改必须继续独立构建。
 - 鉴权错误呈现参考 [OWASP ASVS 5.0.0（v5.0.0-6.3.8）](https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x15-V6-Authentication.md)、[Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#authentication-and-error-messages) 和 [Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)。适用控制为保持通用失败响应、服务端拒绝无效/过期凭据及不在错误响应暴露凭据；测试验证上述失败路径仍终止处理。本次未改变认证判定或会话生命周期，不宣称整个认证系统已通过 ASVS 验证。
 - 未修改生产数据库查询、结构或计费逻辑；认证回归沿用 SQLite 测试夹具，不作为三数据库兼容验证。
+
+- `f4a33abfa` 已于 2026-10-29 17:44（Asia/Shanghai）上线 `netwebs.top`，版本 `v1.0.0-rc.39-local.20261029174244.generic-error.3f51797d`，构建关联文档提交 `692994b01`。二进制 SHA-256：`adea8b2cbf53c150697478ae3303e6229684e7ee2b0abed06e0f1e6491aa0177`。
+- 上线执行 `python3 /tmp/newapi-generic-error-prepare-release.py`、`python3 /tmp/newapi-generic-error-publish.py`：发布文件校验全部通过，supervisor RUNNING，本机/公网健康和版本检查通过，运行中二进制与发布包摘要一致；metrics、前端资源及未登录管理接口 401 检查通过。本机与公网真实 HTTP 请求验证缺失/无效令牌均为 401 + `api_error`、包含请求 ID；`GET /v111` 保持 404 + `invalid_request_error`，检查到的响应无旧项目错误标识。
+- 旧版本备份：`/opt/new-api/releases/v1.0.0-rc.39-local.20261029174244.generic-error.3f51797d/new-api-before-upgrade`，SHA-256：`6e021f58681edac8da1f8dcca216bd07eb697a9a85bcc96e98723be51d2f4d00`。发布脚本具有失败自动回滚；启动脚本摘要未变。
