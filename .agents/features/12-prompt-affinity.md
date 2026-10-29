@@ -58,3 +58,5 @@
 
 - `8aa774789` 已于 2026-10-28 17:28（Asia/Shanghai）发布到 `netwebs.top`，版本 `v1.0.0-rc.39-local.20261028172715.affinity-log.505c0637`；supervisor、本机与公网健康、metrics、前端静态资源校验通过，未登录管理接口仍返回 401。
 - 验证：`go test ./service ./pkg/adaptiverouting -count=1`、亲和与自适应相关竞态测试、根模块构建、七项日志页面测试、前端类型检查、涉及文件 lint/格式检查及生产构建通过。复用已有渠道 Tooltip 与 `policyLabel()`，没有新建通用交互组件。
+
+- `b9e1b3d2c` 的缓存优先策略已于 2026-10-29 17:32（Asia/Shanghai）随 `v1.0.0-rc.39-local.20261029173102.cache-affinity.6749f801` 上线；验证命令、结果及回滚备份见功能 14 的上线记录。

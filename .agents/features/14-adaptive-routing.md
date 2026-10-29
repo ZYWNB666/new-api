@@ -59,3 +59,6 @@
 
 - `b9e1b3d2c` 验证：`go test ./service ./pkg/adaptiverouting -count=1` 通过；`go test -race ./service ./pkg/adaptiverouting -run 'TestAdaptiveRouting|TestAutomaticChannelAffinity|TestRateLimit' -count=1` 通过；`go build ./...` 与 `git diff --check` 通过。回归覆盖冷启动、同等健康、普通波动、一次/两次尖峰、延迟恢复、持续首字或吞吐退化、样本不足、未知候选、缺失吞吐、指标过期、模型隔离、避免以另一项严重退化换性能、故障切换、严格绑定、关闭自适应及成功后更新亲和。
 - 本次仅调整进程内健康观测和渠道选择，不改数据库结构、查询实现、计费数量或前端资源；服务层测试沿用既有 SQLite 夹具，不将其表述为新的三数据库兼容验证。
+
+- `b9e1b3d2c` 已于 2026-10-29 17:32（Asia/Shanghai）发布到 `netwebs.top`，版本 `v1.0.0-rc.39-local.20261029173102.cache-affinity.6749f801`。构建关联工作区提交 `43318e14d`；Go 1.26.1、`GOWORK=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath`，通过 ldflags 写入上述版本。二进制 SHA-256 为 `6e021f58681edac8da1f8dcca216bd07eb697a9a85bcc96e98723be51d2f4d00`。
+- 上线执行 `python3 /tmp/newapi-cache-affinity-prepare-release.py` 与 `python3 /tmp/newapi-cache-affinity-publish.py`：发布文件校验全部通过，supervisor 为 RUNNING，本机及公网 `/api/status` 版本一致，运行中二进制摘要与发布包一致，metrics 与前端资源校验通过；未登录 `/api/option/request_policy` 返回 401。启动脚本摘要保持原值。旧二进制备份为 `/opt/new-api/releases/v1.0.0-rc.39-local.20261029173102.cache-affinity.6749f801/new-api-before-upgrade`，SHA-256 为 `21106876c59b06ac6385c6c3370c012b8921ec38a4503b146b6852bd3d9c8aa7`，发布脚本带失败自动回滚。
