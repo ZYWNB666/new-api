@@ -691,11 +691,16 @@ func TestAdaptiveRoutingMovesPreferredAffinityButPreservesStrictBinding(t *testi
 	}
 }
 
-func TestAdaptiveRoutingComparesPeersInsteadOfKeepingSoftAffinity(t *testing.T) {
+func TestAdaptiveRoutingPreservesWarmAffinityUntilSustainedDegradation(t *testing.T) {
 	db := setupChannelSelectAutoGroupsTest(t)
 	setting := operation_setting.GetChannelAffinitySetting()
 	previousSetting, previousCache := *setting, getChannelAffinityCache()
-	t.Cleanup(func() { *setting = previousSetting; channelAffinityCache = previousCache })
+	previousStore := adaptiverouting.Default
+	t.Cleanup(func() {
+		*setting = previousSetting
+		channelAffinityCache = previousCache
+		adaptiverouting.Default = previousStore
+	})
 	*setting = operation_setting.ChannelAffinitySetting{Enabled: true, SessionMode: "prefer", DefaultTTLSeconds: 3600, MaxEntries: 100}
 	createChannelSelectAutoGroupsChannel(t, db, 4201, "default", "relative-affinity")
 	createChannelSelectAutoGroupsChannel(t, db, 4202, "default", "relative-affinity")
@@ -706,12 +711,98 @@ func TestAdaptiveRoutingComparesPeersInsteadOfKeepingSoftAffinity(t *testing.T) 
 	seed := automaticAffinityContextForTest(992, "/v1/chat/completions", body)
 	_, found := GetPreferredChannelByAffinity(seed, "relative-affinity", "default")
 	require.False(t, found)
-	for _, enabled := range []bool{false, true} {
-		t.Run(fmt.Sprintf("adaptive=%t", enabled), func(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		disabled       bool
+		strict         bool
+		initialSamples int
+		slowSamples    int
+		recoverSamples int
+		failures       int
+		ttft           time.Duration
+		generation     time.Duration
+		peerTTFT       time.Duration
+		peerGeneration time.Duration
+		missingPeer    bool
+		missingTPS     bool
+		stale          bool
+		otherModel     bool
+		wantSwitch     bool
+	}{
+		{name: "cold start"},
+		{name: "equal healthy peers", initialSamples: 10},
+		{name: "moderately slower", initialSamples: 10, slowSamples: 10, ttft: 1500 * time.Millisecond, generation: 1500 * time.Millisecond},
+		{name: "single latency spike", initialSamples: 10, slowSamples: 1, ttft: time.Minute},
+		{name: "two latency spikes", initialSamples: 10, slowSamples: 2, ttft: time.Minute},
+		{name: "latency recovered", initialSamples: 10, slowSamples: 3, ttft: time.Minute, recoverSamples: 3},
+		{name: "sustained slow first token", initialSamples: 10, slowSamples: 3, ttft: 10 * time.Second, wantSwitch: true},
+		{name: "sustained low throughput", initialSamples: 10, slowSamples: 3, generation: 4 * time.Second, wantSwitch: true},
+		{name: "too few performance samples", initialSamples: 2, slowSamples: 3, ttft: 10 * time.Second},
+		{name: "unknown peer", initialSamples: 10, slowSamples: 3, ttft: 10 * time.Second, missingPeer: true},
+		{name: "missing throughput", initialSamples: 10, slowSamples: 3, generation: 4 * time.Second, missingTPS: true},
+		{name: "stale observations", initialSamples: 10, slowSamples: 3, ttft: 10 * time.Second, stale: true},
+		{name: "other model observations", initialSamples: 10, slowSamples: 3, ttft: 10 * time.Second, otherModel: true},
+		{name: "avoid worse throughput", initialSamples: 10, slowSamples: 3, ttft: 10 * time.Second, peerGeneration: 4 * time.Second},
+		{name: "avoid worse latency", initialSamples: 10, slowSamples: 3, generation: 4 * time.Second, peerTTFT: 4 * time.Second},
+		{name: "single upstream failure", initialSamples: 10, failures: 1},
+		{name: "repeated upstream failure", initialSamples: 10, failures: 3, wantSwitch: true},
+		{name: "disabled adaptive routing", disabled: true, initialSamples: 10, slowSamples: 3, ttft: 10 * time.Second},
+		{name: "strict binding", strict: true, initialSamples: 10, slowSamples: 3, ttft: 10 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			adaptiverouting.Default = adaptiverouting.NewStore()
+			setting.SessionMode = "prefer"
+			if tc.strict {
+				setting.SessionMode = "strict"
+			}
+			now := time.Now()
+			if tc.stale {
+				now = now.Add(-11 * time.Minute)
+			}
+			observedModel := "relative-affinity"
+			if tc.otherModel {
+				observedModel = "other-model"
+			}
+			for range tc.initialSamples {
+				sample := adaptiverouting.Sample{ChannelID: 4201, Model: observedModel, Outcome: "success", TTFT: time.Second, Generation: time.Second, OutputTokens: 101}
+				if tc.missingTPS {
+					sample.Generation = 0
+				}
+				adaptiverouting.Default.Record(sample, now)
+				if !tc.missingPeer {
+					sample.ChannelID = 4202
+					if tc.peerTTFT > 0 {
+						sample.TTFT = tc.peerTTFT
+					}
+					if tc.peerGeneration > 0 {
+						sample.Generation = tc.peerGeneration
+					}
+					adaptiverouting.Default.Record(sample, now)
+				}
+			}
+			for range tc.slowSamples {
+				sample := adaptiverouting.Sample{ChannelID: 4201, Model: observedModel, Outcome: "success", TTFT: time.Second, Generation: time.Second, OutputTokens: 101}
+				if tc.ttft > 0 {
+					sample.TTFT = tc.ttft
+				}
+				if tc.generation > 0 {
+					sample.Generation = tc.generation
+				}
+				if tc.missingTPS {
+					sample.Generation = 0
+				}
+				adaptiverouting.Default.Record(sample, now)
+			}
+			for range tc.recoverSamples {
+				adaptiverouting.Default.Record(adaptiverouting.Sample{ChannelID: 4201, Model: observedModel, Outcome: "success", TTFT: time.Second, Generation: time.Second, OutputTokens: 101}, now)
+			}
+			for range tc.failures {
+				adaptiverouting.Default.Record(adaptiverouting.Sample{ChannelID: 4201, Model: observedModel, Outcome: "failure", Status: 503}, now)
+			}
 			RecordChannelAffinity(seed, 4201)
 			c := automaticAffinityContextForTest(992, "/v1/chat/completions", body)
 			common.SetContextKey(c, constant.ContextKeyUserGroup, "default")
-			common.SetContextKey(c, constant.ContextKeyUserSetting, relaydto.UserSetting{AdaptiveRouting: enabled})
+			common.SetContextKey(c, constant.ContextKeyUserSetting, relaydto.UserSetting{AdaptiveRouting: !tc.disabled})
 			channel, _, selectErr := SelectChannelForRequest(c, "relative-affinity", &RetryParam{Ctx: c, TokenGroup: "default", ModelName: "relative-affinity"})
 			require.Nil(t, selectErr)
 			require.NotNil(t, channel)
@@ -722,12 +813,17 @@ func TestAdaptiveRoutingComparesPeersInsteadOfKeepingSoftAffinity(t *testing.T) 
 			assert.NotEmpty(t, info["key_fp"])
 			assert.Equal(t, true, info["cache_hit"])
 			assert.Equal(t, 4201, info["cached_channel_id"])
-			assert.Equal(t, enabled, info["adaptive_routing"])
-			if enabled {
+			assert.Equal(t, !tc.disabled, info["adaptive_routing"])
+			if tc.wantSwitch {
 				assert.Equal(t, "adaptive_bypass", info["binding_status"])
-				assert.Equal(t, 4202, channel.Id, "adaptive selection compares eligible weighted peers")
+				assert.Equal(t, 4202, channel.Id, "sustained degradation permits switching to the eligible peer")
+				RecordChannelAffinity(c, channel.Id)
+				next := automaticAffinityContextForTest(992, "/v1/chat/completions", body)
+				boundID, found := GetPreferredChannelByAffinity(next, "relative-affinity", "default")
+				require.True(t, found)
+				assert.Equal(t, 4202, boundID, "successful replacement becomes the warm binding")
 			} else {
-				assert.Equal(t, 4201, channel.Id, "ordinary users retain existing session affinity")
+				assert.Equal(t, 4201, channel.Id, "preserve the warm binding despite its zero sampling weight")
 				assert.Equal(t, "used", info["binding_status"])
 			}
 		})

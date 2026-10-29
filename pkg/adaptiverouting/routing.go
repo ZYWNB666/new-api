@@ -38,12 +38,14 @@ type key struct {
 	model   string
 }
 type health struct {
-	updated               time.Time
-	samples               int
-	success               float64
-	ttft, tokens, seconds float64
-	failures              int
-	cooldown, retryUntil  time.Time
+	updated                 time.Time
+	samples                 int
+	success                 float64
+	ttft, tokens, seconds   float64
+	failures                int
+	cooldown, retryUntil    time.Time
+	ttftSamples, tpsSamples int
+	recentTTFT, recentTPS   [3]float64
 }
 
 type Store struct {
@@ -133,6 +135,8 @@ func (s *Store) Record(sample Sample, now time.Time) {
 	h.cooldown = time.Time{}
 	if sample.TTFT > 0 {
 		value := sample.TTFT.Seconds()
+		h.recentTTFT[h.ttftSamples%len(h.recentTTFT)] = value
+		h.ttftSamples++
 		if h.ttft == 0 {
 			h.ttft = value
 		} else {
@@ -143,12 +147,61 @@ func (s *Store) Record(sample Sample, now time.Time) {
 	// TPS. Unknown/estimated usage and hidden reasoning are excluded by the caller.
 	if sample.OutputTokens > 1 && sample.Generation > 0 {
 		tokens, seconds := float64(sample.OutputTokens-1), sample.Generation.Seconds()
+		h.recentTPS[h.tpsSamples%len(h.recentTPS)] = tokens / seconds
+		h.tpsSamples++
 		if h.seconds == 0 {
 			h.tokens, h.seconds = tokens, seconds
 		} else {
 			h.tokens, h.seconds = .8*h.tokens+.2*tokens, .8*h.seconds+.2*seconds
 		}
 	}
+}
+
+// ShouldSwitchAffinity protects a warm session from ordinary weighted sampling.
+// Performance must be substantially worse in both the EWMA and the last three
+// observations, with ten valid samples on each side. Unknown or stale metrics
+// cannot justify paying the cache warm-up cost of another provider.
+func (s *Store) ShouldSwitchAffinity(model string, currentID, candidateID int, now time.Time) bool {
+	if currentID == candidateID {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current := s.entries[key{currentID, model}]
+	if current == nil {
+		return false
+	}
+	if current.retryUntil.After(now) {
+		return true
+	}
+	if now.Sub(current.updated) > observationTTL {
+		return false
+	}
+	if current.cooldown.After(now) || current.failures >= 3 || (current.samples >= 10 && current.success < .8) {
+		return true
+	}
+	candidate := s.entries[key{candidateID, model}]
+	if candidate == nil || now.Sub(candidate.updated) > observationTTL || candidate.success < .9 || candidate.failures > 0 || candidate.retryUntil.After(now) || candidate.cooldown.After(now) {
+		return false
+	}
+	slowTTFT := current.ttftSamples >= 10 && candidate.ttftSamples >= 10 && current.ttft >= 2*candidate.ttft
+	for _, value := range current.recentTTFT {
+		slowTTFT = slowTTFT && value >= 2*candidate.ttft
+	}
+	currentTPS, candidateTPS := 0.0, 0.0
+	if current.seconds > 0 && candidate.seconds > 0 {
+		currentTPS = current.tokens / current.seconds
+		candidateTPS = candidate.tokens / candidate.seconds
+	}
+	slowTPS := current.tpsSamples >= 10 && candidate.tpsSamples >= 10 && 2*currentTPS <= candidateTPS
+	for _, value := range current.recentTPS {
+		slowTPS = slowTPS && 2*value <= candidateTPS
+	}
+	// Avoid trading one severe bottleneck for another.
+	if (current.ttft > 0 && candidate.ttft >= 2*current.ttft) || (currentTPS > 0 && candidateTPS > 0 && 2*candidateTPS <= currentTPS) {
+		return false
+	}
+	return slowTTFT || slowTPS
 }
 
 // Weights applies performance and reliability only within the caller's already

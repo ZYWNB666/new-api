@@ -348,10 +348,19 @@ func SelectChannelForRequest(c *gin.Context, modelName string, retry *RetryParam
 							return nil, usingGroup, backoff
 						}
 					} else {
-						// A soft binding cannot bypass comparison with eligible peers. The
-						// weighted selector evaluates their relative performance together.
-						affinitySatisfied = false
-						recordChannelAffinityDecision(c, "adaptive_bypass", preferred.Id)
+						// Keep the warm provider unless health observations justify a
+						// switch to an eligible candidate selected within normal boundaries.
+						candidateRetry := *retry
+						candidate, candidateGroup, err := CacheGetRandomSatisfiedChannel(&candidateRetry)
+						if err == nil && candidate != nil && adaptiverouting.Default.ShouldSwitchAffinity(modelName, preferred.Id, candidate.Id, time.Now()) {
+							channel, selectGroup = candidate, candidateGroup
+							affinitySatisfied = false
+							affinityUsable = true
+							recordChannelAffinityDecision(c, "adaptive_bypass", preferred.Id)
+						} else if backoff := adaptiveChannelBackoff(c, modelName, preferred.Id); backoff != nil {
+							recordChannelAffinityDecision(c, "rate_limited", preferred.Id)
+							return nil, usingGroup, backoff
+						}
 					}
 				}
 			}
