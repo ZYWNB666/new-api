@@ -26,7 +26,7 @@
 - 不生成绑定的情形：无首条用户内容且无显式标识的请求、独立任务、WebSocket。
 - 日志字段：`channel_affinity.rule_name = "automatic session"`、内容指纹使用 `key_source = "prompt_hash"`；显式头部或 Body 标识仍使用 `key_source = "automatic"`；`key_fp`（`affinityFingerprint()` 对路由键计算 SHA-1 后取前 8 位，仅用于日志关联）。
 - `recordChannelAffinityDecision()` 在亲和键生成后记录来源与指纹，不要求实际采用绑定；新增 `cache_hit`、`cached_channel_id`、`session_mode`、`adaptive_routing`、`binding_status`，分别表示缓存查询、原绑定渠道和最终绑定决策。关闭亲和或缓存查询失败时不伪报缓存未命中。
-- `SelectChannelForRequest()` 记录自适应优先、渠道不可用、严格绑定限流和重试重新选路；实际最终渠道继续由日志渠道和重试链表示，命中缓存不等于采用绑定。
+- `SelectChannelForRequest()` 记录自适应故障或性能切换、渠道不可用、严格绑定限流和重试重新选路；实际最终渠道继续由日志渠道和重试链表示，命中缓存不等于采用绑定。
 - 管理员日志提示框复用既有 Tooltip 和 `policyLabel()`，显示键来源、会话模式、缓存命中、绑定渠道、绑定决策及自适应开关；隐藏敏感信息时同时遮盖指纹和绑定渠道。
 - 日志渠道提示框：仅当 `key_source = "prompt_hash"` 且存在 `key_fp` 时，在规则名后显示 `(PromptHash: 指纹)`；隐藏敏感数据时遮盖指纹，不展示原始提示词。
 - 前端：`web/src/features/system-settings/request-policies/routing-section.tsx` 展示说明；i18n 7 语言同步。
@@ -46,10 +46,11 @@
 | 2026-10-25 | `fbb04e5dd` | 初始引入：prompt 前缀生成亲和键 |
 | 2026-10-27 | `a9732a0b4` | 区分内容指纹与显式会话来源，在日志规则后显示 PromptHash 指纹 |
 | 2026-10-28 | `8aa774789` | 独立记录亲和键生成、缓存查询和绑定决策，自适应绕过绑定或缓存未命中仍可展示 PromptHash |
+| 2026-10-29 | `b9e1b3d2c` | 自适应普通亲和优先保持原供应商，持续明显退化或故障才允许切换 |
 
 ## 注意事项
 
-- 默认情况下，相同 prompt 会优先复用同一渠道；开启功能 14 的用户在普通亲和模式下重新比较候选，严格绑定保留。
+- 默认情况下，相同 prompt 会优先复用同一渠道；开启功能 14 的用户也优先保留普通亲和，仅在限流、持续失败或有充分样本确认明显性能下降时允许切换，严格绑定保留。
 - 指纹是路由用途，**不是** provider 缓存参数，不要把它当 `prompt_cache_key` 上报上游。
 - 后续追加轮次不改变指纹（只取第一条用户消息）。
 
