@@ -13,7 +13,7 @@
 - `model.OpenLogExportRows` 使用单条查询和数据库游标流式读取，无全量切片、重复 COUNT 或 OFFSET 分页；`model.LogExportColumns` 同时验证字段白名单和构造查询投影，不读取未选择的元数据大字段。
 - `service.LogExportHandler` 复用 `EnqueueSystemTask` 的唯一活动键和任务租约，全集群只生成一个导出。每 500 条更新进度，生成 `.part` 后原子重命名，失败时删除半成品；`logExportWriter` 在写入边界限制字节数。
 - `service.logExportCleanupHandler` 每小时清理过期 CSV 和崩溃遗留的临时文件；进程崩溃后的任务按既有租约过期机制标记失败，用户重新创建任务，不自动续传生成。
-- `CreateLogExport`、`ListLogExports`、`DownloadLogExport` 使用既有 `UserAuth`；服务端校验管理员范围、字段权限和下载所有者。管理员降权后无法下载原先创建的全用户导出。不导出 `other`、请求头或权限诊断。
+- `CreateLogExport`、`ListLogExports`、`DownloadLogExport` 使用既有 `UserAuth`；服务端校验管理员范围、字段权限和下载所有者。管理员降权后无法下载原先创建的全用户导出。不导出完整 `other`、请求头或权限诊断；选择客户端 ID 时只读取元数据中的 `client_request_id` 字符串。
 - CSV 使用 UTF-8 BOM、标准引号转义和公式注入防护，列名为稳定字段标识。时间为 UTC，耗时为秒，额度为原始整数额度单位，不改变计费值。
 - `LogExportDialog` 复用共享 `Dialog`、`Checkbox`、`Button` 和 `LogsFilterToolbar.actionStart`。已有兑换码导出仅处理兑换码及 TXT/Markdown，不能承载日志筛选和后台任务，因此新增日志业务组件，不新增通用弹窗实现。
 - `downloadLogExport` 在支持 File System Access 的浏览器里流式写入用户选择的文件；其他浏览器仅对不超过 128MiB 的文件使用 Blob 下载，较大的文件提示更换支持直接保存的浏览器。
@@ -34,6 +34,7 @@
 |---|---|---|
 | 2026-11-04 | `0d9b5847a` | 新增按筛选条件及选定字段生成后台 CSV、进度查询、权限校验和下载 |
 | 2026-11-04 | `b8dd75220`（发布基线） | 发布到 netwebs.top，配置持久化导出目录并完成线上验证 |
+| 2026-11-04 | `00d256998` | 新增可选客户端 ID 列，旧日志为空，保持元数据及管理员诊断不可导出 |
 
 ## 注意事项
 
