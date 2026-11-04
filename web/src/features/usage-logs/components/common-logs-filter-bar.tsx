@@ -46,10 +46,11 @@ import { requireServerSuccess } from '@/lib/server-error-message'
 
 import { LOG_TYPE_ALL_VALUE, LOG_TYPE_FILTERS } from '../constants'
 import { buildSearchParams } from '../lib/filter'
-import { getDefaultTimeRange } from '../lib/utils'
+import { buildApiParams, getDefaultTimeRange } from '../lib/utils'
 import type { CommonLogFilters } from '../types'
 import { CommonLogsStats } from './common-logs-stats'
 import { CompactDateTimeRangePicker } from './compact-date-time-range-picker'
+import { LogExportDialog } from './log-export-dialog'
 import {
   LogsFilterField,
   LogsFilterInput,
@@ -488,7 +489,21 @@ export function CommonLogsFilterBar<TData>(
       table={props.table}
       compactMobile
       stats={statsBar}
-      actionStart={sensitiveToggle}
+      actionStart={
+        <>
+          {sensitiveToggle}
+          <LogExportDialog
+            isAdmin={isAdmin}
+            params={buildApiParams({
+              page: 1,
+              pageSize: 100,
+              searchParams,
+              columnFilters: props.table.getState().columnFilters,
+              isAdmin,
+            })}
+          />
+        </>
+      }
       primaryFilters={
         <>
           {dateRangeFilter}
