@@ -1,7 +1,7 @@
 # 15 · 使用日志后台 CSV 导出
 
 - **状态**：活跃
-- **引入提交**：工作区变更，尚未提交（基于 `d8eab2dab`；该 SHA 是基线，不是功能提交）
+- **引入提交**：`0d9b5847a`（使用日志后台 CSV 导出）
 - **影响面**：`model/log_export.go`、`service/log_export.go`、`controller/log_export.go`、`router/api-router.go`、`web/src/features/usage-logs/`
 
 ## 功能说明
@@ -32,7 +32,7 @@
 
 | 日期 | 提交 | 变更 |
 |---|---|---|
-| 2026-11-04 | 工作区（基线 `d8eab2dab`） | 新增按筛选条件及选定字段生成后台 CSV、进度查询、权限校验和下载 |
+| 2026-11-04 | `0d9b5847a` | 新增按筛选条件及选定字段生成后台 CSV、进度查询、权限校验和下载 |
 
 ## 注意事项
 
