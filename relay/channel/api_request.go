@@ -528,6 +528,7 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
 }
 
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
+	service.CaptureUpstreamRequestID(c, nil)
 	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
@@ -594,6 +595,9 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		} else {
 			response, requestErr = relayClient.Do(request)
 		}
+		if response != nil {
+			service.CaptureUpstreamRequestID(c, response.Header)
+		}
 		if requestErr != nil && firstChunkTimeout == 0 {
 			timing.finish("request_error", requestErr)
 		} else if response != nil && response.Body != nil {
@@ -602,7 +606,11 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 		// Record the headers before first-chunk waiting or protocol handling,
 		// including error responses and attempts that later time out.
 		if response != nil && common2.GetEnvOrDefaultBool("LOG_REQUEST_HEADERS", false) {
-			prefix := fmt.Sprintf("provider response headers: channel_id=%d attempt=%d status=%d headers", info.ChannelId, info.RetryIndex+1, response.StatusCode)
+			prefix := fmt.Sprintf("provider response headers: channel_id=%d attempt=%d status=%d", info.ChannelId, info.RetryIndex+1, response.StatusCode)
+			if name := c.GetString(common2.UpstreamRequestIdHeaderKey); name != "" {
+				prefix += " upstream_request_id_header=" + name
+			}
+			prefix += " headers"
 			logger.LogHTTPHeaders(c.Request.Context(), prefix, response.Header, "")
 		}
 		return response, requestErr
@@ -651,12 +659,6 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 			resp.Proto,
 		))
 	}
-
-	upID := resp.Header.Get(common2.RequestIdKey)
-	if upID == "" {
-		upID = resp.Header.Get(common2.LegacyUpstreamRequestIdKey)
-	}
-	c.Set(common2.UpstreamRequestIdKey, upID)
 
 	_ = req.Body.Close()
 	_ = c.Request.Body.Close()

@@ -81,6 +81,22 @@ func LogInfo(ctx context.Context, msg string) {
 	logHelper(ctx, loggerINFO, msg)
 }
 
+// IsSensitiveHTTPHeader identifies values that must not be published in logs
+// or copied into public request-correlation metadata.
+func IsSensitiveHTTPHeader(name string) bool {
+	lower := strings.ToLower(name)
+	switch lower {
+	case "referer", "sec-websocket-protocol", "location", "content-location", "link", "refresh":
+		return true
+	}
+	for _, part := range []string{"auth", "cookie", "key", "token", "secret", "password", "credential", "signature", "url", "uri"} {
+		if strings.Contains(lower, part) {
+			return true
+		}
+	}
+	return false
+}
+
 // LogHTTPHeaders bounds and redacts header values without changing the headers
 // used by the relay. For requests, host is stored separately by net/http; pass
 // an empty host for response headers.
@@ -94,15 +110,7 @@ func LogHTTPHeaders(ctx context.Context, prefix string, header http.Header, host
 			headers["_truncated"] = []string{"too many headers"}
 			break
 		}
-		lower := strings.ToLower(name)
-		sensitive := lower == "referer" || lower == "sec-websocket-protocol" || lower == "location" || lower == "content-location" || lower == "link" || lower == "refresh"
-		for _, part := range []string{"auth", "cookie", "key", "token", "secret", "password", "credential", "signature", "url", "uri"} {
-			if strings.Contains(lower, part) {
-				sensitive = true
-				break
-			}
-		}
-		if sensitive {
+		if IsSensitiveHTTPHeader(name) {
 			headers[name] = []string{"[REDACTED]"}
 			continue
 		}

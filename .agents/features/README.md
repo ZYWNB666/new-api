@@ -30,6 +30,7 @@
 | 13 | `prompt_cache_options` 字段支持 | 活跃 | [13-prompt-cache-options.md](13-prompt-cache-options.md) | `cf690561a` |
 | 14 | 按用户启用的自适应渠道路由（缓存优先） | 活跃 | [14-adaptive-routing.md](14-adaptive-routing.md) | `a9732a0b4` |
 | 15 | 使用日志后台 CSV 导出 | 活跃 | [15-usage-log-export.md](15-usage-log-export.md) | `0d9b5847a` |
+| 16 | 上游请求 ID 自动识别 | 活跃 | [16-upstream-request-id.md](16-upstream-request-id.md) | 工作区（基线 `7d4bcc739`） |
 
 ## 上游基线
 

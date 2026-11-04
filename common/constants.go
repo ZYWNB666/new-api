@@ -192,6 +192,7 @@ const (
 	VersionHeaderKey           = "X-Nawei-Version"
 	LegacyUpstreamRequestIdKey = "X-Oneapi-Request-Id"
 	UpstreamRequestIdKey       = "X-Upstream-Request-Id"
+	UpstreamRequestIdHeaderKey = "upstream_request_id_header"
 )
 
 const (

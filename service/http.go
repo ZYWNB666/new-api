@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/net/http/httpguts"
 )
 
 func CloseResponseBodyGracefully(httpResponse *http.Response) {
@@ -23,11 +24,66 @@ func CloseResponseBodyGracefully(httpResponse *http.Response) {
 	}
 }
 
+// CaptureUpstreamRequestID selects a response correlation ID, never a client
+// header. Known names take precedence; vendor X-*-Request-Id / Requestid names
+// are a fallback. Ties are deterministic regardless of Go's map iteration.
+// Calling with nil clears the previous attempt before starting another one.
+func CaptureUpstreamRequestID(c *gin.Context, headers http.Header) {
+	if c == nil {
+		return
+	}
+	bestPriority := 1000
+	var selectedID, selectedHeader, selectedLower string
+	for name, values := range headers {
+		if !httpguts.ValidHeaderFieldName(name) || logger.IsSensitiveHTTPHeader(name) {
+			continue
+		}
+		lower := strings.ToLower(name)
+		priority := 100
+		switch lower {
+		case strings.ToLower(common.RequestIdKey):
+			priority = 0
+		case strings.ToLower(common.LegacyUpstreamRequestIdKey):
+			priority = 1
+		case "x-upstream-request-id":
+			priority = 2
+		case "x-request-id", "x-requestid":
+			priority = 3
+		case "request-id", "requestid":
+			priority = 4
+		default:
+			prefix, ok := strings.CutSuffix(lower, "-request-id")
+			if !ok {
+				prefix, ok = strings.CutSuffix(lower, "-requestid")
+			}
+			if !ok || !strings.HasPrefix(prefix, "x-") || len(prefix) <= 2 {
+				continue
+			}
+		}
+		if priority > bestPriority || (priority == bestPriority && (lower > selectedLower || (lower == selectedLower && name >= selectedHeader))) {
+			continue
+		}
+		for _, value := range values {
+			value = strings.TrimSpace(value)
+			// The persisted upstream_request_id column is varchar(128). Do not
+			// truncate correlation IDs or accept whitespace/control characters.
+			if value == "" || len(value) > 128 || strings.IndexFunc(value, func(r rune) bool { return r < 33 || r > 126 }) >= 0 {
+				continue
+			}
+			selectedID, selectedHeader, selectedLower = value, name, lower
+			bestPriority = priority
+			break
+		}
+	}
+	c.Set(common.UpstreamRequestIdKey, selectedID)
+	c.Set(common.UpstreamRequestIdHeaderKey, http.CanonicalHeaderKey(selectedHeader))
+}
+
 // ShouldCopyUpstreamHeader checks whether a given upstream response header
 // should be copied to the client response. It returns false for Content-Length
 // (managed separately) and gateway version/request ID headers. The local ID
-// and version stay authoritative; upstream IDs, including legacy provider
-// header names, are retained in context for logging.
+// and version stay authoritative. CaptureUpstreamRequestID owns upstream ID
+// selection; copying headers must not change that choice based on map order.
 func ShouldCopyUpstreamHeader(c *gin.Context, k string, v []string) bool {
 	publicName := common.PublicResponseHeaderName(k)
 	if strings.EqualFold(k, "Content-Length") {
@@ -56,9 +112,6 @@ func ShouldCopyUpstreamHeader(c *gin.Context, k string, v []string) bool {
 		return false
 	}
 	if strings.EqualFold(publicName, common.RequestIdKey) {
-		if c != nil && len(v) > 0 && (strings.EqualFold(k, common.RequestIdKey) || c.GetString(common.UpstreamRequestIdKey) == "") {
-			c.Set(common.UpstreamRequestIdKey, v[0])
-		}
 		return false
 	}
 	return true
@@ -76,6 +129,9 @@ func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
 	// So the httpClient will be confused by the response.
 	// For example, Postman will report error, and we cannot check the response at all.
 	if src != nil {
+		if c.GetString(common.UpstreamRequestIdKey) == "" {
+			CaptureUpstreamRequestID(c, src.Header)
+		}
 		for k, v := range src.Header {
 			if !ShouldCopyUpstreamHeader(c, k, v) {
 				continue

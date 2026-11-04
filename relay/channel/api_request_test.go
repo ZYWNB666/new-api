@@ -91,13 +91,15 @@ func TestDoRequestProviderResponseHeaders(t *testing.T) {
 				t.Cleanup(func() { gin.DefaultWriter = previousWriter })
 				c, _ := gin.CreateTestContext(httptest.NewRecorder())
 				c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil).WithContext(context.WithValue(context.Background(), common.RequestIdKey, "supplier-headers-test"))
+				c.Set(common.UpstreamRequestIdKey, "previous-attempt")
 				headers := http.Header{
 					"Content-Type": {"text/event-stream"}, "X-Request-Id": {"provider-trace"},
 					"Set-Cookie": {"session=do-not-log-cookie"}, "Authorization": {"do-not-log-auth"},
 					"X-Api-Key": {"do-not-log-key"}, "X-Access-Token": {"do-not-log-token"},
-					"Location":      {"https://provider.test/?signature=do-not-log-location"},
-					"Link":          {"https://provider.test/?token=do-not-log-link"},
-					"X-Debug-Value": {"first\nsecond"}, "X-Long-Value": {strings.Repeat("x", 1024)},
+					"X-Secret-Request-Id": {"do-not-log-request-id"},
+					"Location":            {"https://provider.test/?signature=do-not-log-location"},
+					"Link":                {"https://provider.test/?token=do-not-log-link"},
+					"X-Debug-Value":       {"first\nsecond"}, "X-Long-Value": {strings.Repeat("x", 1024)},
 					"X-Multiple": {"a", "b", "c", "d", "do-not-log-extra-value"},
 				}
 				if tc.manyHeaders {
@@ -127,6 +129,7 @@ func TestDoRequestProviderResponseHeaders(t *testing.T) {
 				req, err := http.NewRequest(http.MethodPost, "http://provider.test", strings.NewReader("{}"))
 				require.NoError(t, err)
 				response, err := doRequest(c, req, info)
+				assert.Equal(t, "provider-trace", c.GetString(common.UpstreamRequestIdKey), "headers must be captured even on rejection or first-chunk timeout")
 				if tc.timeout {
 					var apiError *types.NewAPIError
 					require.ErrorAs(t, err, &apiError)
@@ -151,6 +154,7 @@ func TestDoRequestProviderResponseHeaders(t *testing.T) {
 				}
 				assert.Contains(t, line, "| supplier-headers-test |")
 				assert.Contains(t, line, fmt.Sprintf("channel_id=5 attempt=2 status=%d", tc.status))
+				assert.Contains(t, line, "upstream_request_id_header=X-Request-Id")
 				assert.NotContains(t, line, "do-not-log-")
 				assert.Equal(t, 1, strings.Count(line, "\n"), "response headers cannot inject log lines")
 				if tc.manyHeaders {
@@ -865,5 +869,95 @@ func TestToWebSocketURL(t *testing.T) {
 		"ws://127.0.0.1:3000/backend-api/codex/responses": "ws://127.0.0.1:3000/backend-api/codex/responses",
 	} {
 		assert.Equal(t, want, toWebSocketURL(input), input)
+	}
+}
+
+func TestUpstreamRequestIDRecognition(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		headers    http.Header
+		id, source string
+	}{
+		{name: "supplier CDN", headers: http.Header{"X-Ws-Request-Id": {"6aeacd1e_PS-HFE-01LoC32_36176-61243"}}, id: "6aeacd1e_PS-HFE-01LoC32_36176-61243", source: "X-Ws-Request-Id"},
+		{name: "standard before vendor", headers: http.Header{"X-Ws-Request-Id": {"cdn"}, "X-Request-Id": {"provider"}}, id: "provider", source: "X-Request-Id"},
+		{name: "explicit upstream before standard", headers: http.Header{"X-Upstream-Request-Id": {"upstream"}, "X-Request-Id": {"proxy"}}, id: "upstream", source: "X-Upstream-Request-Id"},
+		{name: "preserve gateway precedence", headers: http.Header{"X-Nawei-Request-Id": {"gateway"}, "X-Oneapi-Request-Id": {"legacy"}, "X-Request-Id": {"standard"}}, id: "gateway", source: "X-Nawei-Request-Id"},
+		{name: "legacy gateway", headers: http.Header{"X-Oneapi-Request-Id": {"legacy"}}, id: "legacy", source: "X-Oneapi-Request-Id"},
+		{name: "case insensitive", headers: http.Header{"x-custom-request-id": {"lowercase"}}, id: "lowercase", source: "X-Custom-Request-Id"},
+		{name: "compact vendor suffix", headers: http.Header{"X-Amzn-Requestid": {"aws"}}, id: "aws", source: "X-Amzn-Requestid"},
+		{name: "bare request id", headers: http.Header{"Request-Id": {"bare"}}, id: "bare", source: "Request-Id"},
+		{name: "compact standard name", headers: http.Header{"X-Requestid": {"compact"}}, id: "compact", source: "X-Requestid"},
+		{name: "deterministic vendor tie", headers: http.Header{"X-Zeta-Request-Id": {"zeta"}, "X-Alpha-Request-Id": {"alpha"}}, id: "alpha", source: "X-Alpha-Request-Id"},
+		{name: "duplicate header casing", headers: http.Header{"X-Request-Id": {"canonical"}, "x-request-id": {"lower"}}, id: "canonical", source: "X-Request-Id"},
+		{name: "first usable value", headers: http.Header{"X-Request-Id": {" ", " provider ", "later"}}, id: "provider", source: "X-Request-Id"},
+		{name: "invalid primary falls back", headers: http.Header{"X-Nawei-Request-Id": {"bad\r\ninjection"}, "X-Ws-Request-Id": {"safe"}}, id: "safe", source: "X-Ws-Request-Id"},
+		{name: "oversized primary is not truncated", headers: http.Header{"X-Request-Id": {strings.Repeat("x", 129)}, "X-Ws-Request-Id": {"safe"}}, id: "safe", source: "X-Ws-Request-Id"},
+		{name: "maximum supported length", headers: http.Header{"X-Request-Id": {strings.Repeat("x", 128)}}, id: strings.Repeat("x", 128), source: "X-Request-Id"},
+		{name: "unrelated IDs and credentials", headers: http.Header{"Authorization": {"Bearer secret"}, "Set-Cookie": {"session=secret"}, "X-Api-Key": {"secret"}, "X-Session-Id": {"session"}, "Traceparent": {"trace"}, "Cf-Ray": {"edge"}}},
+		{name: "sensitive request ID names are not public metadata", headers: http.Header{"X-Access-Token-Request-Id": {"do-not-persist-token"}, "X-Secret-Request-Id": {"do-not-persist-secret"}, "X-Ws-Request-Id": {"safe"}}, id: "safe", source: "X-Ws-Request-Id"},
+		{name: "invalid header name", headers: http.Header{"X-Fake\n-Request-Id": {"bad"}}},
+		{name: "invalid values", headers: http.Header{"X-Request-Id": {"bad value", "bad\x00value", "请求编号"}}},
+		{name: "empty vendor prefix", headers: http.Header{"X--Request-Id": {"bad"}}},
+		{name: "no response ID clears previous attempt"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			c.Request.Header.Set("X-Ws-Request-Id", "untrusted-client-id")
+			c.Writer.Header().Set(common.RequestIdKey, "local-request-id")
+			c.Set(common.UpstreamRequestIdKey, "previous-attempt")
+			c.Set(common.UpstreamRequestIdHeaderKey, "X-Old-Request-Id")
+			original := tc.headers.Clone()
+			service.CaptureUpstreamRequestID(c, tc.headers)
+			assert.Equal(t, tc.id, c.GetString(common.UpstreamRequestIdKey))
+			assert.Equal(t, tc.source, c.GetString(common.UpstreamRequestIdHeaderKey))
+			assert.Equal(t, original, tc.headers, "recognition must not change response headers")
+			service.IOCopyBytesGracefully(c, &http.Response{StatusCode: 200, Header: tc.headers}, []byte("ok"))
+			assert.Equal(t, tc.id, c.GetString(common.UpstreamRequestIdKey), "header copying must preserve the selected ID")
+			assert.Equal(t, "local-request-id", c.Writer.Header().Get(common.RequestIdKey))
+		})
+	}
+}
+
+func TestDoRequestRetryDoesNotReuseUpstreamRequestID(t *testing.T) {
+	service.InitHttpClient()
+	client := service.GetHttpClient()
+	previous := client.Transport
+	t.Cleanup(func() { client.Transport = previous })
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelId: 13}}
+	for _, tc := range []struct {
+		name         string
+		headers      http.Header
+		networkError bool
+		want         string
+	}{
+		{name: "first response", headers: http.Header{"X-Ws-Request-Id": {"first-attempt"}}, want: "first-attempt"},
+		{name: "next response has no ID"},
+		{name: "another response", headers: http.Header{"X-Request-Id": {"third-attempt"}}, want: "third-attempt"},
+		{name: "transport failure has no headers", networkError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client.Transport = firstChunkTransport(func(_ *http.Request) (*http.Response, error) {
+				if tc.networkError {
+					return nil, errors.New("connection failed")
+				}
+				return &http.Response{StatusCode: 200, Header: tc.headers, Body: io.NopCloser(strings.NewReader("ok"))}, nil
+			})
+			req, err := http.NewRequest(http.MethodPost, "http://provider.test", strings.NewReader("{}"))
+			require.NoError(t, err)
+			response, err := doRequest(c, req, info)
+			if tc.networkError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.NoError(t, response.Body.Close())
+			}
+			assert.Equal(t, tc.want, c.GetString(common.UpstreamRequestIdKey))
+			if tc.want == "" {
+				assert.Empty(t, c.GetString(common.UpstreamRequestIdHeaderKey))
+			}
+		})
 	}
 }
