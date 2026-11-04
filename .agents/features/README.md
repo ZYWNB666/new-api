@@ -17,7 +17,7 @@
 |---|---|---|---|---|
 | 01 | 品牌本土化与法律文档 | 活跃 | [01-branding-legal.md](01-branding-legal.md) | `539045224` `41bdb07d0` |
 | 02 | 首页重构与 Jev 决策支持 | 活跃 | [02-homepage-jev.md](02-homepage-jev.md) | `70736a3d6` `bac315d77` `bb409e7f6` `5ae8aa8f6` `2bad79510` `ce6ade566` `46eecfa2c` |
-| 03 | 部署与 CI（supervisor / Grafana / GHCR） | 活跃 | [03-deploy-ci.md](03-deploy-ci.md) | `3996b5642` `3817d7dae` `03d2ff99d` |
+| 03 | 部署与 CI（supervisor / 集群 / Grafana / GHCR） | 活跃 | [03-deploy-ci.md](03-deploy-ci.md) | `3996b5642` `3817d7dae` `03d2ff99d` |
 | 04 | 支付宝支付 | 活跃 | [04-alipay.md](04-alipay.md) | `9c727251b` `6288aec2f` |
 | 05 | OAuth 代理支持 | 活跃 | [05-oauth-proxy.md](05-oauth-proxy.md) | `cf0ef5fd7` |
 | 06 | 可观测性指标（Prometheus / Grafana） | 活跃 | [06-metrics.md](06-metrics.md) | `10483148d` `c52ce1ac7` |

@@ -35,6 +35,7 @@
 | 2026-11-04 | `0d9b5847a` | 新增按筛选条件及选定字段生成后台 CSV、进度查询、权限校验和下载 |
 | 2026-11-04 | `b8dd75220`（发布基线） | 发布到 netwebs.top，配置持久化导出目录并完成线上验证 |
 | 2026-11-04 | `00d256998` | 新增可选客户端 ID 列，旧日志为空，保持元数据及管理员诊断不可导出 |
+| 2026-11-04 | `4138bffd8`（发布基线） | 接入 slave 的只读共享 CSV 挂载，验证服务用户可读及写入被拒绝 |
 
 ## 注意事项
 
@@ -73,3 +74,7 @@ env LOG_EXPORT_TEST_CLICKHOUSE="$EXPORT_CLICKHOUSE_DSN" go test ./controller -ru
 - 发布执行 `python3 /tmp/newapi-export-prepare-remote.py`、`python3 /tmp/newapi-export-publish-remote.py` 和 `python3 /tmp/newapi-export-smoke-remote.py`（通过 SSH 的标准输入执行）。发布脚本包含健康、版本、摘要、静态资源和权限检查失败时自动回滚。
 - 上一版本为 `v1.0.0-rc.39-local.20261029174244.generic-error.3f51797d`，二进制摘要 `adea8b2cbf53c150697478ae3303e6229684e7ee2b0abed06e0f1e6491aa0177`。回滚备份为 `/opt/new-api/releases/v1.0.0-rc.39-local.20261104155419.log-export.b8dd75220/new-api-before-upgrade` 与同目录下权限 0600 的 `env-before-upgrade`；手动回滚命令：`python3 /opt/new-api/releases/v1.0.0-rc.39-local.20261104155419.log-export.b8dd75220/rollback.py`。
 - 发布结果保存在服务器 `/opt/new-api/releases/v1.0.0-rc.39-local.20261104155419.log-export.b8dd75220/deployment.json`、`export-verification.json`、`build-info.json`；启动脚本 SHA-256 保持 `38871d77d16c1d5c50c65c2dbf6ab313289cbd7c2519cb9487e0d5eb4f72fd76`。
+
+### 双节点导出存储（2026-11-04）
+
+`newapi-2` 已按只读 NFSv4.2 挂载 master 的导出目录，真实服务用户读取 0600 合成 CSV 成功、写入被拒绝；后台生成和清理仍由 master 执行，slave 可以下载完成文件。该存储依赖 master 可用，不能作为 master 故障时的导出高可用方案。完整部署、ALB 待办及回退记录见 [功能 03](03-deploy-ci.md)。
