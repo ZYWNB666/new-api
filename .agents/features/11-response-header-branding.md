@@ -31,10 +31,12 @@
 |---|---|---|
 | 2026-10-25 | `b079e605f` | 初始引入：响应头 oneAPI/newAPI → Nawei |
 | 2026-10-29 | `f4a33abfa` | 对外本地错误统一使用 api_error，兼容归一化旧上游错误类型 |
+| 2026-11-04 | `d65d2fc55` | 上游 ID 选择交由统一识别器，保留品牌头优先级和本地 ID；见功能 16 |
 
 ## 注意事项
 
 - 新增会暴露实现身份的响应头时，需评估是否也要改写。
+- 上游请求编号的自动识别、优先级和重试清理见 [功能 16](16-upstream-request-id.md)；响应头复制不再按遍历顺序覆盖选定编号。
 
 - 本次只归一化错误类型及同名旧错误码，业务错误码（如 `model_not_found`）、HTTP 状态和请求 ID 保持既有语义。客户端如按旧类型字符串分支，需改用 `api_error`。上游自由文本消息、任意元数据不做字符串擦写。
 - 验证：`go test ./controller ./middleware ./service ./pkg/adaptiverouting -skip 'TestResponsesWebSocketReusesConnectionAndSettlesEachRequest|TestResponsesWebSocketInitialUpstreamRejectionRefundsReservation' -count=1` 通过，跳过的两组 WebSocket 测试为功能 14 已记录的既有基线问题；`go test ./controller ./middleware ./service -run 'TestPublicErrorsUseGenericType|TestTokenFailuresKeepGenericErrorAndAbort|TestDistributeHidesTaskPluginDetailsButLogsDiagnostics|TestRelayErrorHandler' -count=1` 通过。
