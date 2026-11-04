@@ -72,3 +72,10 @@
 - 前端四个直接修改的测试文件共 119 项通过；修改文件 oxlint、oxfmt、`bun run build:check`（类型检查及生产构建）通过。
 - 安全范围参考 [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)、[Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html) 及 [ASVS 稳定版 5.0.0](https://owasp.org/www-project-application-security-verification-standard/)。适用控制为服务端管理员权限校验、自助更新不可覆盖管理员策略、身份鉴别与不可信追踪值隔离、敏感认证头不进入公开追踪日志。回归覆盖普通用户拒绝、自助字段伪造、敏感头跳过与 AuthVersion 保留；不声明整个系统 ASVS 合规。
 - 完整前端范围 `cd web && bun run test src/features/channels src/features/users src/features/usage-logs`：48 文件、726 项通过；根模块 `go build ./...` 通过。完整 controller 回归跳过已在原始基线复现失败的两个 WebSocket 用例，其他用例全部通过，命令：`go test ./controller -skip 'TestResponsesWebSocketReusesConnectionAndSettlesEachRequest|TestResponsesWebSocketInitialUpstreamRejectionRefundsReservation' -count=1`。既有失败说明见功能 15，不修改其计费行为。
+
+### 可配置规则上线（2026-11-04，Asia/Shanghai）
+
+- 17:08 发布至 `netwebs.top`，源码 `4138bffd8`（功能提交 `00d256998`），版本 `v1.0.0-rc.39-local.20261104170732.request-id-config.4138bffd8`。二进制 SHA-256：`59c85bc2ab0db38d1b4633028dae6f5bbb80baed812e1ed59f73dc088deca008`。
+- `newapi-1` 上 Supervisor RUNNING，运行中进程二进制摘要匹配发布包；本机、公网健康及版本检查通过；metrics 正常，6 个前端入口资源本机及公网摘要匹配。导出创建、列表、下载的匿名请求仍全部 401。未使用真实用户凭据修改业务配置或调用供应商，客户端采集保持默认关闭。
+- 环境和启动脚本摘要与发布前一致，不新增迁移；CSV 持久化目录保持 `/var/lib/new-api/log-exports`。发布使用本地 `/tmp/newapi-request-id-prepare-remote.py` 和 `/tmp/newapi-request-id-publish-remote.py` 经 SSH `python3 -` 执行，后者包含失败自动回滚。
+- 上一版本 `v1.0.0-rc.39-local.20261104162549.request-id.d65d2fc55`，摘要 `4f4092502b73b630996cd5b1ce5fd7b4a755deeb05e4fe44f7b2ad60b0b50fcb`。备份及发布结果：`/opt/new-api/releases/v1.0.0-rc.39-local.20261104170732.request-id-config.4138bffd8/new-api-before-upgrade`、`deployment.json`、`build-info.json`；手动回滚命令：`python3 /opt/new-api/releases/v1.0.0-rc.39-local.20261104170732.request-id-config.4138bffd8/rollback.py`。
