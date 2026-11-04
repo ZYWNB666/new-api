@@ -120,6 +120,8 @@ export interface ToolSurchargeItem {
 }
 
 export interface LogOtherData {
+  client_request_id?: string
+  client_request_id_header?: string
   admin_info?: {
     request_policy?: PolicyEvent[]
     is_multi_key?: boolean

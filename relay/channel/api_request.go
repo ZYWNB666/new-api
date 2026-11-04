@@ -596,7 +596,7 @@ func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http
 			response, requestErr = relayClient.Do(request)
 		}
 		if response != nil {
-			service.CaptureUpstreamRequestID(c, response.Header)
+			service.CaptureUpstreamRequestID(c, response.Header, info.ChannelSetting.UpstreamRequestIDHeader)
 		}
 		if requestErr != nil && firstChunkTimeout == 0 {
 			timing.finish("request_error", requestErr)

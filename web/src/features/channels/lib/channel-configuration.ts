@@ -82,6 +82,7 @@ const CONFIGURATION_BLOCKS = {
     section: 'other',
     fields: [
       'proxy',
+      'upstream_request_id_header',
       'http_protocol',
       'http2_connection_shards',
       'disable_task_polling_sleep',
@@ -172,6 +173,7 @@ export function getChannelConfigurationState(
           (values.type === 14 && values.claude_beta_query)))
     ),
     extraSettings: Boolean(
+      values.upstream_request_id_header?.trim() ||
       values.proxy?.trim() ||
       (values.http_protocol && values.http_protocol !== 'auto') ||
       (values.http2_connection_shards ?? 1) > 1 ||

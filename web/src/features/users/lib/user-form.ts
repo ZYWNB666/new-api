@@ -24,6 +24,7 @@ import {
   normalizeAdminPermissions,
 } from '@/lib/admin-permissions'
 import { quotaUnitsToDollars } from '@/lib/format'
+import { requestIdHeaderRuleSchema } from '@/lib/request-id-header-rule'
 import { ROLE } from '@/lib/roles'
 
 import { DEFAULT_GROUP } from '../constants'
@@ -42,6 +43,7 @@ export const userFormSchema = z.object({
   group: z.string().optional(),
   remark: z.string().optional(),
   adaptive_routing: z.boolean().optional(),
+  client_request_id_header: requestIdHeaderRuleSchema.optional(),
   admin_permissions: z
     .record(z.string(), z.record(z.string(), z.boolean()))
     .optional(),
@@ -62,6 +64,7 @@ export const USER_FORM_DEFAULT_VALUES: UserFormValues = {
   group: DEFAULT_GROUP,
   remark: '',
   adaptive_routing: false,
+  client_request_id_header: '',
   // Filled against the backend catalog at render time; see UsersMutateDrawer.
   admin_permissions: {},
 }
@@ -102,6 +105,7 @@ export function transformFormDataToPayload(
   } else {
     // For update: quota is adjusted atomically via /api/user/manage, not sent here
     payload.adaptive_routing = data.adaptive_routing ?? false
+    payload.client_request_id_header = data.client_request_id_header ?? ''
     payload.group = data.group
     payload.remark = data.remark || undefined
     payload.id = userId
@@ -125,6 +129,7 @@ export function transformUserToFormDefaults(user: User): UserFormValues {
     group: user.group || DEFAULT_GROUP,
     remark: user.remark || '',
     adaptive_routing: user.adaptive_routing ?? false,
+    client_request_id_header: user.client_request_id_header ?? '',
     admin_permissions: user.admin_permissions ?? {},
   }
 }

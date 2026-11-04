@@ -60,6 +60,7 @@ export const userSchema = z.object({
   DeletedAt: z.any().nullable().optional(),
   remark: z.string().optional(),
   adaptive_routing: z.boolean().optional(),
+  client_request_id_header: z.string().optional(),
   admin_permissions: z
     .record(z.string(), z.record(z.string(), z.boolean()))
     .optional(),
@@ -127,6 +128,7 @@ export interface UserFormData {
   group?: string // Only used when updating user
   remark?: string // Only used when updating user
   adaptive_routing?: boolean // Administrator-managed routing preference
+  client_request_id_header?: string
   admin_permissions?: AdminPermissionMatrix
 }
 

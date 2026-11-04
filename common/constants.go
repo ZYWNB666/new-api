@@ -193,6 +193,8 @@ const (
 	LegacyUpstreamRequestIdKey = "X-Oneapi-Request-Id"
 	UpstreamRequestIdKey       = "X-Upstream-Request-Id"
 	UpstreamRequestIdHeaderKey = "upstream_request_id_header"
+	ClientRequestIdKey         = "client_request_id"
+	ClientRequestIdHeaderKey   = "client_request_id_header"
 )
 
 const (

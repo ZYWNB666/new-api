@@ -218,6 +218,12 @@ func generateLogExport(ctx context.Context, task *model.SystemTask, runnerID str
 				value = log.RequestId
 			case "upstream_request_id":
 				value = log.UpstreamRequestId
+			case "client_request_id":
+				var metadata struct {
+					ClientRequestID string `json:"client_request_id"`
+				}
+				_ = common.UnmarshalJsonStr(log.Other, &metadata)
+				value = metadata.ClientRequestID
 			case "type":
 				value = strconv.Itoa(log.Type)
 			case "model_name":

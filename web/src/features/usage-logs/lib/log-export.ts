@@ -29,6 +29,7 @@ import type { GetLogsParams } from '../types'
 export const LOG_EXPORT_FIELDS = [
   { key: 'created_at', label: 'Time' },
   { key: 'request_id', label: 'Request ID' },
+  { key: 'client_request_id', label: 'Client Request ID' },
   { key: 'upstream_request_id', label: 'Upstream Request ID' },
   { key: 'type', label: 'Type' },
   { key: 'model_name', label: 'Model Name' },

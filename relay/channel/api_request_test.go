@@ -876,8 +876,14 @@ func TestUpstreamRequestIDRecognition(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		headers    http.Header
+		rule       string
 		id, source string
 	}{
+		{name: "configured vendor overrides standard", rule: "X-Ws-Request-Id", headers: http.Header{"X-Request-Id": {"standard"}, "X-Ws-Request-Id": {"supplier"}}, id: "supplier", source: "X-Ws-Request-Id"},
+		{name: "configured regex", rule: "re:^X-(Ws|Edge)-Request-Id$", headers: http.Header{"X-Request-Id": {"standard"}, "X-Ws-Request-Id": {"supplier"}}, id: "supplier", source: "X-Ws-Request-Id"},
+		{name: "configured rule has no fallback", rule: "Missing-Header", headers: http.Header{"X-Request-Id": {"standard"}}},
+		{name: "invalid legacy regex fails closed", rule: "re:[", headers: http.Header{"X-Request-Id": {"standard"}}},
+		{name: "sensitive explicit rule is ignored", rule: "Authorization", headers: http.Header{"Authorization": {"Bearer-secret"}}},
 		{name: "supplier CDN", headers: http.Header{"X-Ws-Request-Id": {"6aeacd1e_PS-HFE-01LoC32_36176-61243"}}, id: "6aeacd1e_PS-HFE-01LoC32_36176-61243", source: "X-Ws-Request-Id"},
 		{name: "standard before vendor", headers: http.Header{"X-Ws-Request-Id": {"cdn"}, "X-Request-Id": {"provider"}}, id: "provider", source: "X-Request-Id"},
 		{name: "explicit upstream before standard", headers: http.Header{"X-Upstream-Request-Id": {"upstream"}, "X-Request-Id": {"proxy"}}, id: "upstream", source: "X-Upstream-Request-Id"},
@@ -908,7 +914,7 @@ func TestUpstreamRequestIDRecognition(t *testing.T) {
 			c.Set(common.UpstreamRequestIdKey, "previous-attempt")
 			c.Set(common.UpstreamRequestIdHeaderKey, "X-Old-Request-Id")
 			original := tc.headers.Clone()
-			service.CaptureUpstreamRequestID(c, tc.headers)
+			service.CaptureUpstreamRequestID(c, tc.headers, tc.rule)
 			assert.Equal(t, tc.id, c.GetString(common.UpstreamRequestIdKey))
 			assert.Equal(t, tc.source, c.GetString(common.UpstreamRequestIdHeaderKey))
 			assert.Equal(t, original, tc.headers, "recognition must not change response headers")

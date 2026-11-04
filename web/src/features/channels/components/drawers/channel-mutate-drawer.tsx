@@ -297,6 +297,7 @@ const SENSITIVE_FORM_FIELDS = [
   'force_format',
   'thinking_to_content',
   'proxy',
+  'upstream_request_id_header',
   'http_protocol',
   'http2_connection_shards',
   'pass_through_body_enabled',
@@ -4688,6 +4689,33 @@ export function ChannelMutateDrawer({
               >
                 {taskPollingFields}
                 {proxyFields}
+                <FormField
+                  control={form.control}
+                  name='upstream_request_id_header'
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{t('Upstream request ID header')}</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          value={field.value ?? ''}
+                          placeholder='X-Ws-Request-Id'
+                          autoComplete='off'
+                          spellCheck={false}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        {t(
+                          'Read a supplier response header. Leave empty for automatic detection. Use a header name or re:regular expression; matching is case-insensitive and covers the whole name.'
+                        )}{' '}
+                        {t(
+                          'A configured rule that does not match leaves the ID empty. IDs are only used for tracing.'
+                        )}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
                 {httpProtocolFields}
                 {httpShardsFields}
               </fieldset>

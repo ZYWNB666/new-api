@@ -426,6 +426,34 @@ export function UsersMutateDrawer({
 
                   <FormField
                     control={form.control}
+                    name='client_request_id_header'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t('Client request ID header')}</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            value={field.value ?? ''}
+                            placeholder='X-Request-Id'
+                            autoComplete='off'
+                            spellCheck={false}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {t(
+                            'Read an incoming client header. Leave empty to disable collection. Use a header name or re:regular expression; matching is case-insensitive and covers the whole name.'
+                          )}{' '}
+                          {t(
+                            'A configured rule that does not match leaves the ID empty. IDs are only used for tracing.'
+                          )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
                     name='adaptive_routing'
                     render={({ field }) => (
                       <FormItem className={sideDrawerSwitchItemClassName()}>

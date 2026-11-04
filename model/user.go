@@ -77,6 +77,8 @@ func resolveUserSortOptions(sortOptions []UserSortOptions) UserSortOptions {
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
 type User struct {
+	ClientRequestIDHeader *string `json:"client_request_id_header,omitempty" gorm:"-:all"`
+
 	AdaptiveRouting      *bool                      `json:"adaptive_routing,omitempty" gorm:"-:all"`
 	Id                   int                        `json:"id"`
 	Username             string                     `json:"username" gorm:"unique;index" validate:"max=20"`
@@ -208,7 +210,9 @@ func UpdateUserSetting(userId int, setting dto.UserSetting) error {
 		if err := lockForUpdate(tx).First(&current, userId).Error; err != nil {
 			return err
 		}
-		setting.AdaptiveRouting = current.GetSetting().AdaptiveRouting
+		currentSetting := current.GetSetting()
+		setting.AdaptiveRouting = currentSetting.AdaptiveRouting
+		setting.ClientRequestIDHeader = currentSetting.ClientRequestIDHeader
 		encoded, err := common.Marshal(setting)
 		if err != nil {
 			return err
@@ -911,9 +915,18 @@ func (user *User) EditWithTx(tx *gorm.DB, updatePassword bool) error {
 	if err = lockForUpdate(tx).First(&current, user.Id).Error; err != nil {
 		return err
 	}
-	if newUser.AdaptiveRouting != nil {
+	if newUser.AdaptiveRouting != nil || newUser.ClientRequestIDHeader != nil {
 		setting := current.GetSetting()
-		setting.AdaptiveRouting = *newUser.AdaptiveRouting
+		if newUser.AdaptiveRouting != nil {
+			setting.AdaptiveRouting = *newUser.AdaptiveRouting
+		}
+		if newUser.ClientRequestIDHeader != nil {
+			rule := strings.TrimSpace(*newUser.ClientRequestIDHeader)
+			if _, err := dto.CompileRequestIDHeaderRule(rule); err != nil {
+				return err
+			}
+			setting.ClientRequestIDHeader = rule
+		}
 		encoded, err := common.Marshal(setting)
 		if err != nil {
 			return err

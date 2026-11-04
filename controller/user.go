@@ -400,6 +400,7 @@ func GetUser(c *gin.Context) {
 		return
 	}
 	user.AdaptiveRouting = common.GetPointer(user.GetSetting().AdaptiveRouting)
+	user.ClientRequestIDHeader = common.GetPointer(user.GetSetting().ClientRequestIDHeader)
 	user.AdminPermissions = authz.Capabilities(user.Id, user.Role)
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -492,8 +493,9 @@ func GetSelf(c *gin.Context) {
 func buildSelfUserData(user *model.User) map[string]any {
 	userSetting := user.GetSetting()
 	publicSetting := user.Setting
-	if userSetting.AdaptiveRouting {
+	if userSetting.AdaptiveRouting || userSetting.ClientRequestIDHeader != "" {
 		userSetting.AdaptiveRouting = false
+		userSetting.ClientRequestIDHeader = ""
 		encoded, _ := common.Marshal(userSetting)
 		publicSetting = string(encoded)
 	}

@@ -106,7 +106,7 @@ func TestLogExportFiltersFieldsAndPermissions(t *testing.T) {
 	db := logExportDB(t)
 	now := time.Now().Unix() - 60
 	rows := []model.Log{
-		{UserId: 7, CreatedAt: now, Type: 2, ModelName: "kimi-k3.1", Username: "alice", TokenName: "production", Group: "vip", ChannelId: 9, RequestId: "req-a", UpstreamRequestId: "up-a", Quota: 125, Content: "  =1+1,\"quoted\"\nsecond line"},
+		{UserId: 7, CreatedAt: now, Type: 2, ModelName: "kimi-k3.1", Username: "alice", TokenName: "production", Group: "vip", ChannelId: 9, RequestId: "req-a", UpstreamRequestId: "up-a", Other: `{"client_request_id":"customer-a","admin_info":{"diagnostic":"never-export"}}`, Quota: 125, Content: "  =1+1,\"quoted\"\nsecond line"},
 		{UserId: 8, CreatedAt: now, Type: 2, ModelName: "kimi-k3.1", Username: "bob", TokenName: "production", Group: "vip", ChannelId: 9, RequestId: "req-b", Content: "another user"},
 		{UserId: 7, CreatedAt: now, Type: 5, ModelName: "kimi-k3.1", TokenName: "production", Group: "vip", ChannelId: 9, RequestId: "req-error"},
 		{UserId: 7, CreatedAt: now - 3600, Type: 2, ModelName: "kimi-k3.1", TokenName: "production", Group: "vip", ChannelId: 9, RequestId: "req-old"},
@@ -114,7 +114,7 @@ func TestLogExportFiltersFieldsAndPermissions(t *testing.T) {
 	require.NoError(t, model.LOG_DB.Create(&rows).Error)
 	payload := service.LogExportPayload{OwnerID: 7, Role: common.RoleCommonUser, Self: true,
 		Filter: model.LogExportFilter{Type: 2, StartTimestamp: now - 1, EndTimestamp: now + 1, ModelName: "kimi%", TokenName: "production", Group: "vip"},
-		Fields: []string{"request_id", "quota", "content"},
+		Fields: []string{"request_id", "quota", "content", "client_request_id"},
 	}
 	task := runExport(t, payload)
 	require.Equal(t, model.SystemTaskStatusSucceeded, task.Status, task.Error)
@@ -122,7 +122,7 @@ func TestLogExportFiltersFieldsAndPermissions(t *testing.T) {
 	require.NoError(t, err)
 	records, err := csv.NewReader(strings.NewReader(strings.TrimPrefix(string(data), "\xef\xbb\xbf"))).ReadAll()
 	require.NoError(t, err)
-	assert.Equal(t, [][]string{{"request_id", "quota", "content"}, {"req-a", "125", "'  =1+1,\"quoted\"\nsecond line"}}, records)
+	assert.Equal(t, [][]string{{"request_id", "quota", "content", "client_request_id"}, {"req-a", "125", "'  =1+1,\"quoted\"\nsecond line", "customer-a"}}, records)
 	var state service.LogExportState
 	require.NoError(t, common.UnmarshalJsonStr(task.Result, &state))
 	assert.Equal(t, int64(1), state.Processed)

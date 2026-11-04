@@ -103,6 +103,18 @@ func createLog(log *Log) error {
 	return LOG_DB.Create(log).Error
 }
 
+func appendClientRequestID(c *gin.Context, other *LogOther) *LogOther {
+	if c == nil || c.GetString(common.ClientRequestIdKey) == "" {
+		return other
+	}
+	if other == nil {
+		other = NewLogOther()
+	}
+	other.SetPublic("client_request_id", c.GetString(common.ClientRequestIdKey))
+	other.SetPublic("client_request_id_header", c.GetString(common.ClientRequestIdHeaderKey))
+	return other
+}
+
 func clickHouseLogOrder(prefix string) string {
 	return prefix + "created_at desc, " + prefix + "request_id desc"
 }
@@ -281,7 +293,7 @@ func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string,
 	username := c.GetString("username")
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
-	otherStr := other.JSONString()
+	otherStr := appendClientRequestID(c, other).JSONString()
 	// 判断是否需要记录 IP
 	needRecordIp := false
 	if settingMap, err := GetUserSetting(userId, false); err == nil {
@@ -345,7 +357,7 @@ func RecordConsumeLog(c *gin.Context, userId int, params RecordConsumeLogParams)
 	requestId := c.GetString(common.RequestIdKey)
 	upstreamRequestId := c.GetString(common.UpstreamRequestIdKey)
 	createdAt := common.GetTimestamp()
-	otherStr := params.Other.JSONString()
+	otherStr := appendClientRequestID(c, params.Other).JSONString()
 	// 判断是否需要记录 IP
 	needRecordIp := false
 	if settingMap, err := GetUserSetting(userId, false); err == nil {

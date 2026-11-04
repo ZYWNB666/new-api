@@ -451,6 +451,7 @@ func TokenAuth() func(c *gin.Context) {
 		}
 
 		userCache.WriteContext(c)
+		service.CaptureClientRequestID(c)
 
 		userGroup := userCache.Group
 		tokenGroup := token.Group

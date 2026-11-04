@@ -14,11 +14,13 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/adaptiverouting"
 	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/go-redis/redis/v8"
@@ -701,4 +703,128 @@ func TestAdaptiveRoutingDatabaseSelectionKeepsEligibilityAndConfiguredWeights(t 
 	var stored model.Channel
 	require.NoError(t, db.First(&stored, 1).Error)
 	assert.Equal(t, 100, stored.GetWeight())
+}
+
+func TestRequestIDHeaderPolicies(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	require.NoError(t, authz.Init(db))
+	require.NoError(t, db.AutoMigrate(&model.Channel{}))
+	user := model.User{Username: "id-policy-user", Password: "unused-hash", Group: "default", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AuthVersion: 1}
+	user.SetSetting(dto.UserSetting{Language: "ja", AdaptiveRouting: true})
+	require.NoError(t, db.Create(&user).Error)
+	for _, rule := range []string{"X-Client-Request-Id", "re:^X-(Client|Customer)-Request-Id$", ""} {
+		body, err := common.Marshal(map[string]any{"id": user.Id, "username": user.Username, "group": "default", "client_request_id_header": rule})
+		require.NoError(t, err)
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodPut, "/api/user/", strings.NewReader(string(body)))
+		c.Set("role", common.RoleRootUser)
+		UpdateUser(c)
+		require.Contains(t, recorder.Body.String(), `"success":true`)
+		require.NoError(t, db.First(&user, user.Id).Error)
+		assert.Equal(t, rule, user.GetSetting().ClientRequestIDHeader)
+		assert.Equal(t, "ja", user.GetSetting().Language)
+		assert.True(t, user.GetSetting().AdaptiveRouting)
+		assert.EqualValues(t, 1, user.AuthVersion, "correlation settings do not change authentication assurance")
+	}
+	for _, rule := range []string{"re:[", "re:", "bad header", strings.Repeat("x", 257)} {
+		body, err := common.Marshal(map[string]any{"id": user.Id, "username": user.Username, "group": "default", "client_request_id_header": rule})
+		require.NoError(t, err)
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodPut, "/api/user/", strings.NewReader(string(body)))
+		c.Set("role", common.RoleRootUser)
+		UpdateUser(c)
+		assert.NotContains(t, recorder.Body.String(), `"success":true`)
+		require.NoError(t, db.First(&user, user.Id).Error)
+		assert.Empty(t, user.GetSetting().ClientRequestIDHeader)
+	}
+	rule := "re:^X-Client-Request-Id$"
+	user.ClientRequestIDHeader = &rule
+	require.NoError(t, user.Edit(false))
+	require.NoError(t, model.UpdateUserSetting(user.Id, dto.UserSetting{Language: "fr", ClientRequestIDHeader: "forged"}))
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, rule, user.GetSetting().ClientRequestIDHeader)
+	self := buildSelfUserData(&user)
+	assert.NotContains(t, self["setting"], "client_request_id_header")
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/user/self", strings.NewReader(`{"language":"en","client_request_id_header":"forged","setting":"{}"}`))
+	c.Set("id", user.Id)
+	UpdateSelf(c)
+	require.Contains(t, recorder.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, rule, user.GetSetting().ClientRequestIDHeader)
+	recorder = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/user/", strings.NewReader(fmt.Sprintf(`{"id":%d,"username":"id-policy-user","group":"default","client_request_id_header":"forged"}`, user.Id)))
+	c.Set("role", common.RoleCommonUser)
+	UpdateUser(c)
+	assert.NotContains(t, recorder.Body.String(), `"success":true`)
+	require.NoError(t, db.First(&user, user.Id).Error)
+	assert.Equal(t, rule, user.GetSetting().ClientRequestIDHeader)
+	recorder = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/user/1", nil)
+	c.Params = gin.Params{{Key: "id", Value: strconv.Itoa(user.Id)}}
+	c.Set("role", common.RoleRootUser)
+	GetUser(c)
+	assert.Contains(t, recorder.Body.String(), "client_request_id_header")
+
+	channel := model.Channel{Name: "id-policy-channel", Type: 1, Key: "unused-provider-key"}
+	channel.SetSetting(dto.ChannelSettings{UpstreamRequestIDHeader: "re:^X-(Ws|Provider)-Request-Id$", ForceFormat: true})
+	require.NoError(t, channel.ValidateSettings())
+	require.NoError(t, db.Create(&channel).Error)
+	var stored model.Channel
+	require.NoError(t, db.First(&stored, channel.Id).Error)
+	assert.Equal(t, "re:^X-(Ws|Provider)-Request-Id$", stored.GetSetting().UpstreamRequestIDHeader)
+	assert.True(t, stored.GetSetting().ForceFormat)
+	channel.SetSetting(dto.ChannelSettings{UpstreamRequestIDHeader: "re:["})
+	assert.Error(t, channel.ValidateSettings())
+
+	previousConsume, previousExport := common.LogConsumeEnabled, common.DataExportEnabled
+	common.LogConsumeEnabled = true
+	common.DataExportEnabled = false
+	t.Cleanup(func() { common.LogConsumeEnabled = previousConsume; common.DataExportEnabled = previousExport })
+	for _, tc := range []struct{ rule, header, value, want string }{
+		{rule: "X-Client-Request-Id", header: "X-Client-Request-Id", value: "client-123", want: "client-123"},
+		{rule: "re:^X-(Client|Customer)-Request-Id$", header: "x-customer-request-id", value: "customer-456", want: "customer-456"},
+		{rule: "", header: "X-Request-Id", value: "not-opted-in"},
+		{rule: "Authorization", header: "Authorization", value: "do-not-record-token"},
+		{rule: "re:[", header: "X-Request-Id", value: "invalid-rule"},
+	} {
+		t.Run(tc.rule+tc.header, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+			c.Request.Header.Set(tc.header, tc.value)
+			common.SetContextKey(c, constant.ContextKeyUserSetting, dto.UserSetting{ClientRequestIDHeader: tc.rule})
+			c.Set(common.RequestIdKey, "local-id")
+			c.Writer.Header().Set(common.RequestIdKey, "local-id")
+			service.CaptureClientRequestID(c)
+			assert.Equal(t, tc.want, c.GetString(common.ClientRequestIdKey))
+			assert.Equal(t, "local-id", c.GetString(common.RequestIdKey))
+			assert.Equal(t, "local-id", c.Writer.Header().Get(common.RequestIdKey))
+		})
+	}
+	c, _ = gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	c.Request.Header.Set("X-Client-Request-Id", "client-123")
+	common.SetContextKey(c, constant.ContextKeyUserSetting, dto.UserSetting{ClientRequestIDHeader: "X-Client-Request-Id"})
+	service.CaptureClientRequestID(c)
+	c.Set("username", user.Username)
+	c.Set(common.RequestIdKey, "local-correlation")
+	c.Set(common.UpstreamRequestIdKey, "provider-correlation")
+	model.RecordConsumeLog(c, user.Id, model.RecordConsumeLogParams{ModelName: "kimi-test"})
+	model.RecordErrorLog(c, user.Id, 13, "kimi-test", "", "test rejection", 0, 0, false, "default", nil)
+	var logs []model.Log
+	require.NoError(t, model.LOG_DB.Where("request_id = ?", "local-correlation").Order("id").Find(&logs).Error)
+	require.Len(t, logs, 2)
+	for _, log := range logs {
+		var other map[string]any
+		require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
+		assert.Equal(t, "client-123", other["client_request_id"])
+		assert.Equal(t, "X-Client-Request-Id", other["client_request_id_header"])
+		assert.Equal(t, "local-correlation", log.RequestId)
+		assert.Equal(t, "provider-correlation", log.UpstreamRequestId)
+	}
 }

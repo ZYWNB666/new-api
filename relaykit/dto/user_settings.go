@@ -1,6 +1,8 @@
 package dto
 
 type UserSetting struct {
+	// ClientRequestIDHeader is administrator-managed correlation metadata.
+	ClientRequestIDHeader string `json:"client_request_id_header,omitempty"`
 	// AdaptiveRouting is administrator-managed and must be stripped from self DTOs.
 	AdaptiveRouting                  bool    `json:"adaptive_routing,omitempty"`
 	NotifyType                       string  `json:"notify_type,omitempty"`                          // QuotaWarningType 额度预警类型

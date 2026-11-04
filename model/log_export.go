@@ -69,7 +69,7 @@ func OpenLogExportRows(ctx context.Context, filter LogExportFilter, fields []str
 // LogExportColumns is shared by request validation and the database projection.
 // Metadata blobs and privileged diagnostics are deliberately not exportable.
 func LogExportColumns(fields []string, self bool) ([]string, error) {
-	if len(fields) == 0 || len(fields) > 17 {
+	if len(fields) == 0 || len(fields) > 18 {
 		return nil, errors.New("select valid export fields")
 	}
 	columns := make([]string, 0, len(fields))
@@ -80,6 +80,8 @@ func LogExportColumns(fields []string, self bool) ([]string, error) {
 		}
 		seen[field] = true
 		switch field {
+		case "client_request_id":
+			columns = append(columns, "other")
 		case "created_at", "request_id", "upstream_request_id", "type", "model_name", "token_name", "prompt_tokens", "completion_tokens", "quota", "use_time", "is_stream", "group", "ip", "content":
 			columns = append(columns, field)
 		case "user_id", "username", "channel":

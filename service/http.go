@@ -8,7 +8,9 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/net/http/httpguts"
@@ -28,9 +30,39 @@ func CloseResponseBodyGracefully(httpResponse *http.Response) {
 // header. Known names take precedence; vendor X-*-Request-Id / Requestid names
 // are a fallback. Ties are deterministic regardless of Go's map iteration.
 // Calling with nil clears the previous attempt before starting another one.
-func CaptureUpstreamRequestID(c *gin.Context, headers http.Header) {
+func CaptureUpstreamRequestID(c *gin.Context, headers http.Header, rules ...string) {
 	if c == nil {
 		return
+	}
+	rule := ""
+	if len(rules) > 0 {
+		rule = rules[0]
+	}
+	id, name := selectRequestIDHeader(headers, rule)
+	c.Set(common.UpstreamRequestIdKey, id)
+	c.Set(common.UpstreamRequestIdHeaderKey, name)
+}
+
+// CaptureClientRequestID runs only after the user has been authenticated. A
+// blank user policy disables collection; it never falls back to client headers.
+func CaptureClientRequestID(c *gin.Context) {
+	if c == nil || c.Request == nil {
+		return
+	}
+	setting, _ := common.GetContextKeyType[dto.UserSetting](c, constant.ContextKeyUserSetting)
+	var id, name string
+	if strings.TrimSpace(setting.ClientRequestIDHeader) != "" {
+		id, name = selectRequestIDHeader(c.Request.Header, setting.ClientRequestIDHeader)
+	}
+	c.Set(common.ClientRequestIdKey, id)
+	c.Set(common.ClientRequestIdHeaderKey, name)
+}
+
+func selectRequestIDHeader(headers http.Header, rule string) (string, string) {
+	configured := strings.TrimSpace(rule) != ""
+	matcher, err := dto.CompileRequestIDHeaderRule(rule)
+	if err != nil {
+		return "", ""
 	}
 	bestPriority := 1000
 	var selectedID, selectedHeader, selectedLower string
@@ -40,24 +72,30 @@ func CaptureUpstreamRequestID(c *gin.Context, headers http.Header) {
 		}
 		lower := strings.ToLower(name)
 		priority := 100
-		switch lower {
-		case strings.ToLower(common.RequestIdKey):
-			priority = 0
-		case strings.ToLower(common.LegacyUpstreamRequestIdKey):
-			priority = 1
-		case "x-upstream-request-id":
-			priority = 2
-		case "x-request-id", "x-requestid":
-			priority = 3
-		case "request-id", "requestid":
-			priority = 4
-		default:
-			prefix, ok := strings.CutSuffix(lower, "-request-id")
-			if !ok {
-				prefix, ok = strings.CutSuffix(lower, "-requestid")
-			}
-			if !ok || !strings.HasPrefix(prefix, "x-") || len(prefix) <= 2 {
+		if configured {
+			if matcher == nil || !matcher.MatchString(name) {
 				continue
+			}
+		} else {
+			switch lower {
+			case strings.ToLower(common.RequestIdKey):
+				priority = 0
+			case strings.ToLower(common.LegacyUpstreamRequestIdKey):
+				priority = 1
+			case "x-upstream-request-id":
+				priority = 2
+			case "x-request-id", "x-requestid":
+				priority = 3
+			case "request-id", "requestid":
+				priority = 4
+			default:
+				prefix, ok := strings.CutSuffix(lower, "-request-id")
+				if !ok {
+					prefix, ok = strings.CutSuffix(lower, "-requestid")
+				}
+				if !ok || !strings.HasPrefix(prefix, "x-") || len(prefix) <= 2 {
+					continue
+				}
 			}
 		}
 		if priority > bestPriority || (priority == bestPriority && (lower > selectedLower || (lower == selectedLower && name >= selectedHeader))) {
@@ -75,8 +113,7 @@ func CaptureUpstreamRequestID(c *gin.Context, headers http.Header) {
 			break
 		}
 	}
-	c.Set(common.UpstreamRequestIdKey, selectedID)
-	c.Set(common.UpstreamRequestIdHeaderKey, http.CanonicalHeaderKey(selectedHeader))
+	return selectedID, http.CanonicalHeaderKey(selectedHeader)
 }
 
 // ShouldCopyUpstreamHeader checks whether a given upstream response header
@@ -129,7 +166,7 @@ func IOCopyBytesGracefully(c *gin.Context, src *http.Response, data []byte) {
 	// So the httpClient will be confused by the response.
 	// For example, Postman will report error, and we cannot check the response at all.
 	if src != nil {
-		if c.GetString(common.UpstreamRequestIdKey) == "" {
+		if _, captured := c.Get(common.UpstreamRequestIdHeaderKey); !captured {
 			CaptureUpstreamRequestID(c, src.Header)
 		}
 		for k, v := range src.Header {

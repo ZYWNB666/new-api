@@ -75,13 +75,13 @@ test('exports selected fields and applied filters without page limits', async ()
   const create = within(dialog).getByRole('button', { name: 'Create export' })
   expect(create).toBeDisabled()
   await user.click(
-    within(dialog).getByRole('checkbox', { name: /^Model Name/ })
+    within(dialog).getByRole('checkbox', { name: /^Client Request ID/ })
   )
   await user.click(create)
   await waitFor(() =>
     expect(post).toHaveBeenCalledWith('/api/log/export', {
       scope: 'self',
-      fields: ['model_name'],
+      fields: ['client_request_id'],
       filter: {
         start_timestamp: 100,
         end_timestamp: 200,

@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { z } from 'zod'
 
+import { requestIdHeaderRuleSchema } from '@/lib/request-id-header-rule'
+
 import {
   CLAUDE_FIELD_PASSTHROUGH_TYPES,
   CHANNEL_TYPE_NEW_API,
@@ -266,6 +268,7 @@ export const channelFormSchema = z
       .string()
       .optional()
       .refine(isOptionalProxyURL, ERROR_MESSAGES.INVALID_PROXY),
+    upstream_request_id_header: requestIdHeaderRuleSchema.optional(),
     http_protocol: z.enum(['auto', 'http1']).optional(),
     http2_connection_shards: z.number().int().optional(),
     pass_through_body_enabled: z.boolean().optional(),
@@ -457,6 +460,7 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   force_format: false,
   thinking_to_content: false,
   proxy: '',
+  upstream_request_id_header: '',
   http_protocol: HTTP_PROTOCOL_AUTO,
   http2_connection_shards: 1,
   pass_through_body_enabled: false,
@@ -501,6 +505,7 @@ export function transformChannelToFormDefaults(
     force_format: false,
     thinking_to_content: false,
     proxy: '',
+    upstream_request_id_header: '',
     http_protocol: HTTP_PROTOCOL_AUTO as 'auto' | 'http1',
     http2_connection_shards: 1,
     pass_through_body_enabled: false,
@@ -522,6 +527,9 @@ export function transformChannelToFormDefaults(
         force_format: parsed.force_format || false,
         thinking_to_content: parsed.thinking_to_content || false,
         proxy: parsed.proxy || '',
+        upstream_request_id_header: String(
+          parsed.upstream_request_id_header || ''
+        ),
         http_protocol: protocol,
         http2_connection_shards: protocol === HTTP_PROTOCOL_HTTP1 ? 1 : shards,
         pass_through_body_enabled: parsed.pass_through_body_enabled || false,
@@ -663,6 +671,11 @@ export function buildSettingJSON(formData: ChannelFormValues): string {
       formData.responses_websocket_enabled === true,
     system_prompt: formData.system_prompt || '',
     system_prompt_override: formData.system_prompt_override || false,
+  }
+
+  if (formData.upstream_request_id_header?.trim()) {
+    settingObj.upstream_request_id_header =
+      formData.upstream_request_id_header.trim()
   }
 
   const protocol = normalizeHttpProtocol(formData.http_protocol)

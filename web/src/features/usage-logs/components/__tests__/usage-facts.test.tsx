@@ -484,3 +484,13 @@ describe('usage facts billing details', () => {
     expect(screen.getByText('Total Cost')).toBeInTheDocument()
   })
 })
+
+test('shows client correlation separately from the gateway request ID', () => {
+  const queryClient = renderDetails({
+    client_request_id: 'customer-123',
+    client_request_id_header: 'X-Client-Request-Id',
+  })
+  expect(rowValue('Client Request ID')).toBe('customer-123')
+  expect(rowValue('Request ID')).toBe('req-1')
+  queryClient.clear()
+})

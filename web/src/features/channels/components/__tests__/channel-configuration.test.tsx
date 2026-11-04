@@ -1989,6 +1989,7 @@ test('an operator without sensitive write permission can discover saved models a
   expect(thinking).not.toBeChecked()
   await user.click(screen.getByRole('tab', { name: /Other Settings/ }))
   expect(screen.getByLabelText('Proxy Address')).toBeDisabled()
+  expect(screen.getByLabelText('Upstream request ID header')).toBeDisabled()
   await user.click(screen.getByRole('tab', { name: /Routing & Mapping/ }))
   fireEvent.change(screen.getByLabelText('Priority'), {
     target: { value: '8' },
@@ -2811,4 +2812,48 @@ test('a New API channel binds upstream task plugins and publishes their models',
   expect(setting).toMatchObject({ task_extend_plugin_keys: ['video-b'] })
   expect(setting).not.toHaveProperty('task_plugin_key')
   expect(payload.models?.split(',').sort()).toEqual(['gpt-5', 'video-b-1'])
+})
+
+test.each(['X-Ws-Request-Id', 're:^X-(Ws|Provider)-Request-Id$', ''])(
+  'loads and saves supplier request ID header rule %s',
+  async (rule) => {
+    editingChannel = {
+      ...editingChannel,
+      setting: JSON.stringify({
+        upstream_request_id_header: 'X-Old-Request-Id',
+      }),
+    }
+    const put = vi
+      .spyOn(api, 'put')
+      .mockResolvedValue({ data: { success: true } })
+    const user = userEvent.setup()
+    render(<ConfigurationHarness currentRow={editingChannel} />)
+    await screen.findByDisplayValue('Existing channel')
+    await user.click(screen.getByRole('tab', { name: /Other Settings/ }))
+    const input = screen.getByLabelText('Upstream request ID header')
+    expect(input).toHaveValue('X-Old-Request-Id')
+    fireEvent.change(input, { target: { value: rule } })
+    await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+    await waitFor(() => expect(put).toHaveBeenCalled())
+    const payload = put.mock.calls[0]?.[1] as { setting: string }
+    expect(JSON.parse(payload.setting).upstream_request_id_header ?? '').toBe(
+      rule
+    )
+  }
+)
+
+test('invalid supplier header names block submission and reveal their field', async () => {
+  const put = vi.spyOn(api, 'put')
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  await user.click(screen.getByRole('tab', { name: /Other Settings/ }))
+  fireEvent.change(screen.getByLabelText('Upstream request ID header'), {
+    target: { value: 'bad header name' },
+  })
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  expect(
+    await screen.findByText('Invalid request ID header rule')
+  ).toBeVisible()
+  expect(put).not.toHaveBeenCalled()
 })

@@ -17,7 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -46,7 +52,8 @@ const description =
 function renderPermissions(
   viewerRole: number,
   allowed?: boolean,
-  adaptiveRouting = false
+  adaptiveRouting = false,
+  clientRequestIDHeader = ''
 ) {
   useAuthStore
     .getState()
@@ -84,6 +91,7 @@ function renderPermissions(
         data: {
           ...target,
           adaptive_routing: adaptiveRouting,
+          client_request_id_header: clientRequestIDHeader,
           admin_permissions:
             allowed === undefined ? {} : { audit: { read: allowed } },
         },
@@ -175,3 +183,40 @@ it.each([false, true])(
     )
   }
 )
+
+it.each(['X-Client-Request-Id', 're:^X-(Client|Customer)-Request-Id$', ''])(
+  'administrator can load and save client request ID header rule %s',
+  async (rule) => {
+    const put = vi
+      .spyOn(api, 'put')
+      .mockResolvedValue({ data: { success: true } })
+    renderPermissions(100, undefined, false, 'X-Old-Request-Id')
+    await screen.findByDisplayValue('Managed admin')
+    const input = screen.getByLabelText('Client request ID header')
+    expect(input).toHaveValue('X-Old-Request-Id')
+    await userEvent.clear(input)
+    // Paste regex syntax without interpreting brackets as keyboard commands.
+    fireEvent.change(input, { target: { value: rule } })
+    await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() =>
+      expect(put).toHaveBeenCalledWith(
+        '/api/user/',
+        expect.objectContaining({ id: 2, client_request_id_header: rule })
+      )
+    )
+  }
+)
+
+it('rejects oversized client header rules before saving', async () => {
+  const put = vi.spyOn(api, 'put')
+  renderPermissions(100)
+  await screen.findByDisplayValue('Managed admin')
+  fireEvent.change(screen.getByLabelText('Client request ID header'), {
+    target: { value: 'x'.repeat(257) },
+  })
+  await userEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+  expect(
+    await screen.findByText('Header rule must not exceed 256 characters')
+  ).toBeVisible()
+  expect(put).not.toHaveBeenCalled()
+})
