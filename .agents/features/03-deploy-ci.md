@@ -35,6 +35,7 @@
 | 2026-10-23 | `03d2ff99d` | 修复 upload-artifact 路径 VERSION 未展开 |
 | 2026-11-04 | `4138bffd8`（发布基线） | 部署 newapi-2 slave，共享数据库/Redis/密钥、只读 CSV 存储和监控；等待 ALB 加入 |
 | 2026-11-04 | `370617d22`（部署记录基线） | 用户接入 ALB 后验证真实模型请求与成功返回，更新双机部署状态 |
+| 2026-11-05 | `2896db5f9` | 双节点逐台发布 API 协议完整性修复，排空检查与自动回滚，配置保持不变 |
 
 ## 注意事项
 
@@ -54,3 +55,5 @@
 - 部署报告存于两台 `/opt/new-api/releases/v1.0.0-rc.39-local.20261104170732.request-id-config.4138bffd8/slave-deployment.json`。如撤下节点，先从 ALB 摘除（如已加入），再在 slave 执行 `supervisorctl stop new-api`，不把它改成 master；按上述备份回退 Prometheus、删除新增 NFS export 并 `exportfs -r` 即可解除共享。master 发布包及原有环境均保留。
 
 - ALB 接入后的只读观测样本：新节点供应商响应中渠道 5 有 2 次 200，渠道 9 有 3 次 200、10 次 429；采样窗口为进程最近 1MiB 日志，统计随流量变化。429 已明确来自供应商响应，不能都归因于本机承载能力；本次不修改渠道限额、模型重试或计费配置。此次只观察既有实际请求，没有额外发起付费生成，也未执行 5000 RPM 压测。
+
+- 2026-11-05 两台更新至 `v1.0.0-rc.39-local.20261105101241.protocol-contract.2896db5f9`；当前部署、验证和回滚详情见 [功能 17](17-api-protocol-integrity.md)。

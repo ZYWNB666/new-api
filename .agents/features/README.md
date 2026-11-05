@@ -31,6 +31,7 @@
 | 14 | 按用户启用的自适应渠道路由（缓存优先） | 活跃 | [14-adaptive-routing.md](14-adaptive-routing.md) | `a9732a0b4` |
 | 15 | 使用日志后台 CSV 导出 | 活跃 | [15-usage-log-export.md](15-usage-log-export.md) | `0d9b5847a` |
 | 16 | 上下游请求 ID 识别与配置 | 活跃 | [16-upstream-request-id.md](16-upstream-request-id.md) | `d65d2fc55` |
+| 17 | API 路由与协议完整性 | 活跃 | [17-api-protocol-integrity.md](17-api-protocol-integrity.md) | `2896db5f9` |
 
 ## 上游基线
 
