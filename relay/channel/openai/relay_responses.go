@@ -3,6 +3,7 @@ package openai
 import (
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 
 	"github.com/QuantumNous/new-api/common"
@@ -78,26 +79,79 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	defer service.CloseResponseBodyGracefully(resp)
 
 	accumulator := service.NewResponsesUsageAccumulator(info)
+	var responseID string
+	var lastSequence *int
+	writeFailed := false
 
 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
 
-		// 检查当前数据是否包含 completed 状态和 usage 信息
 		var streamResponse dto.ResponsesStreamResponse
 		if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
-			logger.LogError(c, "failed to unmarshal stream response: "+err.Error())
-			sr.Error(err)
+			sr.Stop(fmt.Errorf("invalid Responses stream event"))
 			return
 		}
+		if streamResponse.Type == "" {
+			sr.Stop(fmt.Errorf("Responses stream event has no type"))
+			return
+		}
+		if streamResponse.SequenceNumber != nil {
+			lastSequence = streamResponse.SequenceNumber
+		}
 		if streamResponse.Response != nil {
+			if streamResponse.Response.ID != "" {
+				responseID = streamResponse.Response.ID
+			}
 			data = string(rewriteSGLangResponsesCreatedAt(info, []byte(data), "response.created_at", streamResponse.Response.CreatedAt))
 		}
-		sendResponsesStreamData(c, streamResponse, data)
 		accumulator.Observe(&streamResponse)
+		outcome := info.StreamStatus.ResponseOutcome()
+		// Some compatible upstreams use response.done, including for failures.
+		// Canonicalize only an observed outcome; never invent completion at EOF.
+		if streamResponse.Type == "response.done" || (streamResponse.Type == "response.completed" && outcome != "" && outcome != "completed") {
+			streamResponse.Type = "response." + outcome
+			patched, err := sjson.Set(data, "type", streamResponse.Type)
+			if err != nil {
+				sr.Stop(fmt.Errorf("cannot normalize Responses terminal event"))
+				return
+			}
+			data = patched
+		}
+		if err := helper.ResponseChunkData(c, streamResponse, data); err != nil {
+			writeFailed = true
+			sr.Stop(err)
+			return
+		}
+		if outcome != "" {
+			sr.Done()
+		}
 	})
 
 	common.SetContextKey(c, constant.ContextKeyResponseStreamStatus, info.StreamStatus)
 	info.StreamStatus.RequireTerminal()
-	return accumulator.Finish(), nil
+	// Settle the usage already observed before adding a gateway failure event.
+	// A missing terminal must not erase billable output from an interrupted stream.
+	usage := accumulator.Finish()
+	if info.StreamStatus.ResponseOutcome() == "" && !writeFailed && c.Request.Context().Err() == nil {
+		const message = "Upstream stream ended without a Responses terminal event."
+		info.StreamStatus.MarkFailed("incomplete_stream", "server_error", http.StatusBadGateway)
+		info.StreamStatus.RecordError(message)
+		failure := map[string]any{
+			"type": "response.failed",
+			"response": map[string]any{
+				"id": responseID, "object": "response", "status": "failed",
+				"error": map[string]any{"type": "server_error", "code": "incomplete_stream", "message": message},
+			},
+		}
+		if lastSequence != nil && *lastSequence >= 0 && *lastSequence < math.MaxInt {
+			failure["sequence_number"] = *lastSequence + 1
+		}
+		data, err := common.Marshal(failure)
+		if err == nil {
+			_ = helper.ResponseChunkData(c, dto.ResponsesStreamResponse{Type: "response.failed"}, string(data))
+		}
+		logger.LogWarn(c, "Responses stream failed: incomplete_stream")
+	}
+	return usage, nil
 }
 
 func rewriteSGLangResponsesCreatedAt(info *relaycommon.RelayInfo, payload []byte, path string, createdAt dto.IntValue) []byte {

@@ -12,6 +12,7 @@ import (
 	sharedclaude "github.com/QuantumNous/new-api/relaykit/relayconvert/internal/shared/claude"
 	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
+	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
 func convertOpenAIResponsesRequestToClaudeMessages(c context.Context, info convmeta.Meta, request any) (any, error) {
@@ -176,7 +177,9 @@ func responsesInputContentToClaudeMediaMessages(c context.Context, content any) 
 					Text: kitutil.GetPointer(text),
 				})
 			}
-		case "input_image", "input_file", "input_audio", "input_video":
+		case "input_video", "video", "video_url":
+			return nil, relaymedia.UnsupportedContent("video", types.RelayFormatClaude)
+		case "input_image", "input_file", "input_audio":
 			source := ContentPartToFileSource(contentPart)
 			if source == nil {
 				continue
@@ -184,6 +187,9 @@ func responsesInputContentToClaudeMediaMessages(c context.Context, content any) 
 			base64Data, mimeType, err := relaymedia.ResolveBase64Data(c, source, "formatting Responses input for Claude")
 			if err != nil {
 				return nil, fmt.Errorf("get file data failed: %s", err.Error())
+			}
+			if strings.HasPrefix(strings.ToLower(mimeType), "video/") {
+				return nil, relaymedia.UnsupportedContent("video", types.RelayFormatClaude)
 			}
 			claudePart := dto.ClaudeMediaMessage{
 				Source: &dto.ClaudeMessageSource{

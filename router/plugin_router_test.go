@@ -887,9 +887,10 @@ func performPluginRequest(handler http.Handler, method, path string) *httptest.R
 }
 
 func TestWebFallbackDoesNotCacheMissingAPIOrAssets(t *testing.T) {
+	setupRelayRouterTestDB(t)
 	outer := gin.New()
 	SetWebRouter(outer, WebAssets{IndexPage: []byte("dashboard")}, func(c *gin.Context) { c.Next() })
-	for _, path := range []string{"/api/user/token/status", "/api/audit/self?p=1", "/v1/missing", "/assets/missing.js"} {
+	for _, path := range []string{"/api/user/token/status", "/api/audit/self?p=1", "/v1/missing", "/v2/responses", "/v1beta/missing", "/messages", "/responses", "/chat/completions", "/assets/missing.js", "/static/missing.js"} {
 		t.Run(path, func(t *testing.T) {
 			response := performPluginRequest(outer, http.MethodGet, path)
 			assert.Equal(t, http.StatusNotFound, response.Code)
@@ -902,6 +903,21 @@ func TestWebFallbackDoesNotCacheMissingAPIOrAssets(t *testing.T) {
 	assert.Equal(t, http.StatusOK, page.Code)
 	assert.Equal(t, "dashboard", page.Body.String())
 	assert.Equal(t, "no-cache", page.Header().Get("Cache-Control"))
+	for _, tc := range []struct{ method, name, value string }{
+		{method: http.MethodPost},
+		{method: http.MethodPut},
+		{method: http.MethodGet, name: "Authorization", value: "Bearer test"},
+		{method: http.MethodGet, name: "Accept", value: "application/json"},
+	} {
+		request := httptest.NewRequest(tc.method, "/misspelled-endpoint", nil)
+		if tc.name != "" {
+			request.Header.Set(tc.name, tc.value)
+		}
+		response := httptest.NewRecorder()
+		outer.ServeHTTP(response, request)
+		assert.Equal(t, http.StatusNotFound, response.Code)
+		assert.Contains(t, response.Header().Get("Content-Type"), "application/json")
+	}
 }
 
 func TestSecurityRoutesDisableCachingBeforeAuthentication(t *testing.T) {
@@ -914,4 +930,22 @@ func TestSecurityRoutesDisableCachingBeforeAuthentication(t *testing.T) {
 			assert.Contains(t, response.Header().Get("Cache-Control"), "no-store")
 		})
 	}
+}
+
+func TestFrontendRedirectDoesNotRedirectAPIRequests(t *testing.T) {
+	setupRelayRouterTestDB(t)
+	t.Setenv("FRONTEND_BASE_URL", "https://dashboard.example.invalid")
+	outer := gin.New()
+	SetRouter(outer, WebAssets{})
+	for _, path := range []string{"/messages", "/responses", "/v2/responses"} {
+		response := performPluginRequest(outer, http.MethodGet, path)
+		assert.Equal(t, http.StatusNotFound, response.Code)
+		assert.Empty(t, response.Header().Get("Location"))
+		assert.Contains(t, response.Header().Get("Content-Type"), "application/json")
+	}
+	response := performPluginRequest(outer, http.MethodPost, "/missing")
+	assert.Equal(t, http.StatusNotFound, response.Code)
+	page := performPluginRequest(outer, http.MethodGet, "/security")
+	assert.Equal(t, http.StatusMovedPermanently, page.Code)
+	assert.Equal(t, "https://dashboard.example.invalid/security", page.Header().Get("Location"))
 }

@@ -10,8 +10,10 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/internal/convdiag"
+	relaymedia "github.com/QuantumNous/new-api/relaykit/relayconvert/internal/media"
 	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
+	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
 func ClaudeMessagesRequestToOpenAIResponses(ctx context.Context, claudeRequest dto.ClaudeRequest, info convmeta.Meta) (*dto.OpenAIResponsesRequest, error) {
@@ -147,6 +149,9 @@ func claudeMessagesToResponsesInput(messages []dto.ClaudeMessage) (json.RawMessa
 		blocks, err := message.ParseContent()
 		if err != nil {
 			return nil, fmt.Errorf("messages[%d].content: %w", messageIndex, err)
+		}
+		if err := relaymedia.ValidateClaudeVideo(blocks, types.RelayFormatOpenAIResponses); err != nil {
+			return nil, err
 		}
 		contentParts := make([]map[string]any, 0, len(blocks))
 		flushContent := func() {

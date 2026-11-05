@@ -354,3 +354,65 @@ func TestOaiResponsesStreamHandlerKeepsNonSGLangCreatedAt(t *testing.T) {
 	require.Nil(t, apiErr)
 	assert.Contains(t, w.Body.String(), `1786588600.0`)
 }
+
+func TestResponsesStreamTerminalsAreExplicitAndTruthful(t *testing.T) {
+	previousTimeout := constant.StreamingTimeout
+	constant.StreamingTimeout = 30
+	t.Cleanup(func() { constant.StreamingTimeout = previousTimeout })
+	for _, tc := range []struct {
+		name, terminal, wantEvent, wantOutcome string
+	}{
+		{"completed", `{"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":2,"output_tokens":3,"total_tokens":5}}}`, "response.completed", "completed"},
+		{"upstream failed after text", `{"type":"response.failed","response":{"id":"resp_1","status":"failed","error":{"code":"upstream_failed","message":"failed after text"}}}`, "response.failed", "failed"},
+		{"incomplete", `{"type":"response.incomplete","response":{"id":"resp_1","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}}`, "response.incomplete", "incomplete"},
+		{"legacy done completed", `{"type":"response.done","vendor_field":"preserve","response":{"id":"resp_1","status":"completed"}}`, "response.completed", "completed"},
+		{"legacy done failed", `{"type":"response.done","response":{"id":"resp_1","status":"failed"}}`, "response.failed", "failed"},
+		{"contradictory completion", `{"type":"response.completed","response":{"id":"resp_1","status":"failed"}}`, "response.failed", "failed"},
+		{"contradictory incomplete", `{"type":"response.completed","response":{"id":"resp_1","status":"incomplete"}}`, "response.incomplete", "incomplete"},
+		{"EOF without terminal", "", "response.failed", "failed"},
+		{"malformed event", `{not-json}`, "response.failed", "failed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			info := &relaycommon.RelayInfo{OriginModelName: "test", DisablePing: true, ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "test"}}
+			body := "data: {\"type\":\"response.created\",\"sequence_number\":1,\"response\":{\"id\":\"resp_1\",\"status\":\"in_progress\"}}\n\n" +
+				"data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n"
+			if tc.terminal != "" {
+				body += "data: " + tc.terminal + "\n\n"
+			}
+			response := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(body))}
+			usage, apiErr := OaiResponsesStreamHandler(c, info, response)
+			require.Nil(t, apiErr, "do not retry or append a JSON error after SSE has started")
+			require.NotNil(t, usage)
+			assert.Equal(t, tc.wantOutcome, info.StreamStatus.ResponseOutcome())
+			output := recorder.Body.String()
+			assert.Contains(t, output, "event: "+tc.wantEvent+"\n")
+			assert.Equal(t, 1, strings.Count(output, "event: "+tc.wantEvent+"\n"))
+			if tc.wantOutcome != "completed" {
+				assert.NotContains(t, output, "event: response.completed\n")
+			}
+			if tc.name == "EOF without terminal" || tc.name == "malformed event" {
+				assert.Contains(t, output, `"code":"incomplete_stream"`)
+				assert.Greater(t, usage.CompletionTokens, 0, "interrupted text remains accounted for")
+			}
+			if tc.name == "completed" {
+				assert.Equal(t, 2, usage.PromptTokens)
+				assert.Equal(t, 3, usage.CompletionTokens)
+			}
+			if tc.name == "legacy done completed" {
+				assert.Contains(t, output, `"vendor_field":"preserve"`)
+			}
+			if tc.name == "upstream failed after text" {
+				assert.Contains(t, output, `"code":"upstream_failed"`)
+			}
+		})
+	}
+}
+
+func TestOaiResponsesStreamHandlerKeepsCompletedImageOnMissingTerminal(t *testing.T) {
+	info := runResponsesImageBillingStream(t, `{"type":"response.output_item.done","output_index":0,"item":{"type":"image_generation_call","id":"img_1","call_id":"call_1","status":"completed","result":"base64-a"}}`)
+	assert.Equal(t, "failed", info.StreamStatus.ResponseOutcome())
+	assert.Equal(t, 1, info.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolImageGeneration].CallCount)
+}

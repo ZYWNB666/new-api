@@ -827,3 +827,58 @@ func inputContentText(t *testing.T, item map[string]any) string {
 	require.True(t, ok)
 	return text
 }
+
+func TestClaudeMediaConversionPreservesImagesAndRejectsVideoLoss(t *testing.T) {
+	for _, tc := range []struct {
+		name, content, want string
+		wantError           bool
+	}{
+		{"image URL", `[{"type":"image","source":{"type":"url","url":"https://example.invalid/image.png"}}]`, "https://example.invalid/image.png", false},
+		{"base64 image", `[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"aGVsbG8="}}]`, "data:image/png;base64,aGVsbG8=", false},
+		{"video", `[{"type":"text","text":"describe"},{"type":"video","source":{"type":"url","url":"https://example.invalid/video.mp4"}}]`, "", true},
+		{"video URL block", `[{"type":"video_url","video_url":{"url":"https://example.invalid/video.mp4"}}]`, "", true},
+		{"video MIME in image", `[{"type":"image","source":{"type":"base64","media_type":"video/mp4","data":"aGVsbG8="}}]`, "", true},
+		{"nested tool video", `[{"type":"tool_result","tool_use_id":"tool_1","content":[{"type":"text","text":"describe"},{"type":"video","source":{"type":"url","url":"https://example.invalid/video.mp4"}}]}]`, "", true},
+	} {
+		for _, target := range []types.RelayFormat{types.RelayFormatOpenAI, types.RelayFormatOpenAIResponses} {
+			t.Run(tc.name+string(target), func(t *testing.T) {
+				var request dto.ClaudeRequest
+				require.NoError(t, kitutil.UnmarshalJsonStr(`{"model":"test","messages":[{"role":"user","content":`+tc.content+`}]}`, &request))
+				result, err := ConvertRequest(nil, nil, target, &request)
+				if tc.wantError {
+					var loss *types.ConversionLossError
+					require.ErrorAs(t, err, &loss)
+					assert.Contains(t, err.Error(), "video")
+					return
+				}
+				require.NoError(t, err)
+				encoded, err := kitutil.Marshal(result.Value)
+				require.NoError(t, err)
+				assert.Contains(t, string(encoded), tc.want)
+			})
+		}
+	}
+	var emptyImage dto.ClaudeRequest
+	require.NoError(t, kitutil.UnmarshalJsonStr(`{"model":"test","messages":[{"role":"user","content":[{"type":"image"}]}]}`, &emptyImage))
+	_, err := ConvertRequest(nil, nil, types.RelayFormatOpenAI, &emptyImage)
+	var loss *types.ConversionLossError
+	require.ErrorAs(t, err, &loss)
+}
+
+func TestResponsesVideoConversionRejectsLossAndPreservesSupportedPaths(t *testing.T) {
+	request := &dto.OpenAIResponsesRequest{Model: "test", Input: []byte(`[{"role":"user","content":[{"type":"input_text","text":"describe"},{"type":"input_video","video_url":{"url":"https://example.invalid/video.mp4"}}]}]`)}
+	_, err := ConvertRequest(nil, nil, types.RelayFormatClaude, request)
+	var loss *types.ConversionLossError
+	require.ErrorAs(t, err, &loss)
+	assert.Contains(t, err.Error(), "video")
+	for _, target := range []types.RelayFormat{types.RelayFormatOpenAI, types.RelayFormatOpenAIResponses} {
+		result, err := ConvertRequest(nil, nil, target, request)
+		require.NoError(t, err)
+		encoded, err := kitutil.Marshal(result.Value)
+		require.NoError(t, err)
+		assert.Contains(t, string(encoded), "https://example.invalid/video.mp4")
+	}
+	missingVideo := &dto.OpenAIResponsesRequest{Model: "test", Input: []byte(`[{"role":"user","content":[{"type":"input_video"}]}]`)}
+	_, err = ConvertRequest(nil, nil, types.RelayFormatGemini, missingVideo)
+	require.ErrorAs(t, err, &loss)
+}

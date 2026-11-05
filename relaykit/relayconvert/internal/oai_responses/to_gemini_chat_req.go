@@ -13,6 +13,7 @@ import (
 	sharedgemini "github.com/QuantumNous/new-api/relaykit/relayconvert/internal/shared/gemini"
 	kitutil "github.com/QuantumNous/new-api/relaykit/relayconvert/kitutil"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/reasoning"
+	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
 func convertOpenAIResponsesRequestToGeminiChat(c context.Context, info convmeta.Meta, request any) (any, error) {
@@ -237,7 +238,7 @@ func responsesContentPartToGeminiParts(c context.Context, part map[string]any) (
 	case "input_image", "input_file", "input_audio", "input_video":
 		source := ContentPartToFileSource(part)
 		if source == nil {
-			return nil, nil
+			return nil, relaymedia.UnsupportedContent("media without a payload", types.RelayFormatGemini)
 		}
 		base64Data, mimeType, err := relaymedia.ResolveBase64Data(c, source, "formatting Responses input for Gemini")
 		if err != nil {
@@ -255,7 +256,7 @@ func responsesContentPartToGeminiParts(c context.Context, part map[string]any) (
 			},
 		}, nil
 	default:
-		return nil, nil
+		return nil, relaymedia.UnsupportedContent("unrecognized media", types.RelayFormatGemini)
 	}
 }
 

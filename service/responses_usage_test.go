@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -119,6 +120,7 @@ func TestObserveResponsesOutcomeRecordsProtocolFacts(t *testing.T) {
 		wantType    string
 		wantIncompl string
 	}{
+		{"completed", `{"type":"response.completed","response":{"status":"completed"}}`, relaycommon.ResponseOutcomeCompleted, "", "", ""},
 		{"flat sse error", `{"type":"error","code":"context_length_exceeded","message":"too long"}`, relaycommon.ResponseOutcomeFailed, "context_length_exceeded", "", ""},
 		{"done with failed status", `{"type":"response.done","response":{"status":"failed","error":{"code":"invalid_api_key","type":"invalid_request_error","message":"bad key"}}}`, relaycommon.ResponseOutcomeFailed, "invalid_api_key", "invalid_request_error", ""},
 		{"incomplete keeps reason", `{"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}}`, relaycommon.ResponseOutcomeIncomplete, "", "", "max_output_tokens"},
@@ -134,6 +136,16 @@ func TestObserveResponsesOutcomeRecordsProtocolFacts(t *testing.T) {
 			assert.Equal(t, tc.wantCode, outcome.ErrorCode)
 			assert.Equal(t, tc.wantType, outcome.ErrorType)
 			assert.Equal(t, tc.wantIncompl, outcome.IncompleteReason)
+			info.IsStream = true
+			info.StreamStatus.RequireTerminal()
+			info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonEOF, nil)
+			other := model.NewLogOther()
+			appendStreamStatus(info, other)
+			wantStatus := `"status":"error"`
+			if tc.wantOutcome == relaycommon.ResponseOutcomeCompleted {
+				wantStatus = `"status":"ok"`
+			}
+			assert.Contains(t, other.JSONString(), wantStatus)
 		})
 	}
 }
