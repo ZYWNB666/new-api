@@ -57,3 +57,27 @@
 - ALB 接入后的只读观测样本：新节点供应商响应中渠道 5 有 2 次 200，渠道 9 有 3 次 200、10 次 429；采样窗口为进程最近 1MiB 日志，统计随流量变化。429 已明确来自供应商响应，不能都归因于本机承载能力；本次不修改渠道限额、模型重试或计费配置。此次只观察既有实际请求，没有额外发起付费生成，也未执行 5000 RPM 压测。
 
 - 2026-11-05 两台更新至 `v1.0.0-rc.39-local.20261105101241.protocol-contract.2896db5f9`；当前部署、验证和回滚详情见 [功能 17](17-api-protocol-integrity.md)。
+
+### 四节点部署记录（2026-11-09，Asia/Shanghai）
+
+- 新增三台 slave，与 master 同 VPC（`vpc-uf6bhmtb3d7ouef4e0v1t`）、同 region（cn-shanghai），均可直连 RDS PG `172.16.3.90:5432` 与 Redis `172.16.0.71:6379`。三台原先都是干净 Ubuntu 24.04.5（无 supervisor、无 new-api），8 核 16GB，磁盘 40G。
+
+| 节点 | 公网 IP | 内网 IP | ECS | 主机名 |
+|---|---|---|---|---|
+| newapi-2 | 47.100.175.171 | 172.16.0.77 | i-uf608xbyhu0ngkzmk2e0 | newapi-2 |
+| newapi-3 | 106.14.185.96 | 172.16.0.76 | i-uf608xbyhu0ngkzmk2e1 | newapi-3 |
+| newapi-4 | 139.196.74.136 | 172.16.0.78 | i-uf608xbyhu0ngkzmk2e2 | newapi-4 |
+
+- **IP 复用注意**：`172.16.0.76` 曾是 2026-11-04 那台 slave（newapi-2，`106.14.86.71`）的地址，该机器已下线（Prometheus target 长期 down），IP 现分配给 newapi-3。接入监控时把原 `node: newapi-2` 标签改为 `node: newapi-3`，避免指标归属错误。
+- 四台版本统一为 `v1.0.0-rc.39-local.20261105101241.protocol-contract.2896db5f9`，二进制 SHA-256 均为 `70b7452b96fc69cea1875855a4e3df7df721874bf5b1b7556eee25f6972def42`。发布包从 master 的 `releases/` 目录经 SSH 管道拉取，部署前后各校验一次摘要；未改代码、依赖、DSN、表结构或迁移逻辑，**没有重启 master**（master 进程 uptime 连续，pid 867088 未变）。
+- 部署脚本落在 `deploy/cluster/`（`common.sh`、`prepare-node.sh`、`deploy-slave.sh`、`verify-slave.sh`、`verify-cluster.sh`、`attach-monitoring.sh`、`rollback-slave.sh`、`start.sh`、`new-api.conf`），详见该目录 README。沿用既有约定：凭据不经手（env 从 master 管道拉取后只改 `NODE_TYPE`/`NODE_NAME`/`METRICS_ADDR` 三行）、不用 heredoc 传配置（改 scp）、不用 supervisor `environment=`（`%` 会破坏 Redis 密码的 URL 编码）。
+- 目录布局、supervisor 参数与 master 完全一致：`/opt/new-api`、`/var/log/new-api`、user=newapi（UID 996，gid 取系统分配值 1000——slave 上 988 已被 docker 占用，NFS `all_squash` 依赖 master 端 anonuid/anongid，本地 gid 不影响挂载）、`env` 0600、`startsecs=15`、`stopwaitsecs=180`。
+- 指标监听从 master 的 `127.0.0.1:9000` 改为各 slave 自己的内网 IP（master 的 Prometheus 同机，slave 需要跨机抓取），未对公网开放。master Prometheus 的 `new-api` job 现为 4 个目标，`promtool check config` 通过后对 systemd MainPID 发 SIGHUP 重载，四个 target 均 UP。配置备份 `/opt/monitoring/config/prometheus.yml.before-newapi-slaves-20261109140206`。
+- 验证：四台 supervisor 均 RUNNING；二进制摘要、运行时版本一致；各 slave 本机 `/api/status` 200；6 个前端入口资源摘要逐一匹配；匿名访问 self 与导出创建均 401；`/messages`、`/responses`、`/v2/responses` 均返回 JSON 404（非 HTML 首页）；`system_instances` 表中 `newapi-1`~`newapi-4` 四个心跳均在更新；公网 `netwebs.top` 健康与版本正常；三台 slave 日志 0 error/panic/fatal、0 个 429。
+- **流量接入状态**：三台的 3000 端口均已出现来自 ALB（`172.16.1.94`，与 master 相同的连接模式）的 established 连接，`newapi-2`/`newapi-3` 已收到真实 `POST /v1/responses` 并返回 200。即用户已在 ALB 服务器组加入这三台，本次部署是在流量已进入的情况下补齐服务。`GLOBAL_WEB_RATE_LIMIT=600/60s` 与 master 一致，健康检查未被 429 误杀。
+- 本次未修改 ALB 权重、环境文件既有行、启动脚本结构、渠道限额或计费配置；未使用真实用户凭据登录，未主动发起付费模型调用，也未执行 5000 RPM 压测。
+
+### 待办（四节点后）
+
+- **NFS 共享导出目录未配置**：`LOG_EXPORT_DIR=/var/lib/new-api/log-exports` 已写入三台 env，但 master 的 `/etc/exports.d/newapi.exports` 仍只导出给 `172.16.0.76`，且三台尚未挂载。缺此项时 slave 无法下载 master 生成的 CSV（功能 15 要求所有执行/下载节点挂同一目录）。需要：追加 `172.16.0.76`（newapi-3）、`172.16.0.77`、`172.16.0.78` 导出规则并 `exportfs -r`，再在三台按 `_netdev,nofail,x-systemd.automount` 挂载，并以 `newapi` 用户实测可读、写入被拒绝。
+- **master 指标防火墙单元已丢失**：`newapi-metrics-firewall.service` 与 `/etc/newapi-metrics.nft` 在 master 上均已不存在，nftables 现无 9000 端口访问控制，四台的指标端口实际只依赖安全组。需要重建该单元，仅放行 master 与本机访问 9000。
