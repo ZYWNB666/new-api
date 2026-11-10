@@ -33,10 +33,13 @@ SUPERVISOR_CONF=/etc/supervisor/conf.d/new-api.conf
 
 # ---- 版本 -----------------------------------------------------------------
 # 与 master 当前运行版本保持一致；发布包从 master 的 releases 目录取，
-# 保证二进制逐字节一致（SHA-256 70b7452b...def42）。
-VERSION="${VERSION:-v1.0.0-rc.39-local.20261105101241.protocol-contract.2896db5f9}"
-SOURCE_COMMIT="${SOURCE_COMMIT:-2896db5f950cca76ca80da06f1b32e08544f5f22}"
-BINARY_SHA256="${BINARY_SHA256:-70b7452b96fc69cea1875855a4e3df7df721874bf5b1b7556eee25f6972def42}"
+# 保证二进制逐字节一致（SHA-256 fe62451a...b208e）。
+VERSION="${VERSION:-v1.0.0-rc.39-local.20261110105838.log-export-month.9d85a8069}"
+SOURCE_COMMIT="${SOURCE_COMMIT:-4e53ab720ae90a5d22e9fd0bbeb50ee6a830960b}"
+BINARY_SHA256="${BINARY_SHA256:-fe62451a40c0acc6b6113e2ab5a8b97d6d55511d9d713bda52e1f4e4471b208e}"
+
+# 本次二进制包含未提交的日志导出改动；SOURCE_COMMIT 是构建基线，
+# 精确源码清单与差异见发布包 build-info.json / source-changes.patch。
 
 # ---- SSH 选项 -------------------------------------------------------------
 SSH_OPTS=(-o StrictHostKeyChecking=no -o ConnectTimeout=15 -o BatchMode=yes)

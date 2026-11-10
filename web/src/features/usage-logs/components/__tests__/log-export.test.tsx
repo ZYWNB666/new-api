@@ -81,6 +81,7 @@ test('exports selected fields and applied filters without page limits', async ()
   await waitFor(() =>
     expect(post).toHaveBeenCalledWith('/api/log/export', {
       scope: 'self',
+      mode: 'details',
       fields: ['client_request_id'],
       filter: {
         start_timestamp: 100,
@@ -178,4 +179,118 @@ test('failed history can be retried and duplicate submissions are disabled while
   expect(create).toHaveAttribute('aria-busy', 'true')
   resolvePost({ data: { success: true, data: { task_id: 'systask_new' } } })
   await waitFor(() => expect(create).toBeEnabled())
+})
+
+test('detail export selects token and amount breakdowns by default', async () => {
+  const user = userEvent.setup()
+  vi.spyOn(api, 'get').mockResolvedValue({ data: { success: true, data: [] } })
+  const post = vi.spyOn(api, 'post').mockResolvedValue({
+    data: { success: true, data: { task_id: 'systask_new' } },
+  })
+  renderExport()
+  await user.click(screen.getByRole('button', { name: 'Export logs' }))
+  expect(screen.getByText(/up to 31 days for details/)).toBeInTheDocument()
+  expect(
+    screen.getByRole('checkbox', { name: /^Cache read tokens/ })
+  ).toBeChecked()
+  expect(
+    screen.getByRole('checkbox', { name: /^Total amount \(USD\)/ })
+  ).toBeChecked()
+  await user.click(screen.getByRole('button', { name: 'Create export' }))
+  await waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      '/api/log/export',
+      expect.objectContaining({
+        mode: 'details',
+        fields: expect.arrayContaining([
+          'cache_read_tokens',
+          'cache_write_tokens',
+          'amount_usd',
+          'input_amount_usd',
+          'output_amount_usd',
+          'cache_read_amount_usd',
+          'cache_write_amount_usd',
+        ]),
+      })
+    )
+  )
+})
+
+test('statistics export submits time grain and permitted dimensions independently of detail selection', async () => {
+  const user = userEvent.setup()
+  vi.spyOn(api, 'get').mockResolvedValue({ data: { success: true, data: [] } })
+  const post = vi.spyOn(api, 'post').mockResolvedValue({
+    data: { success: true, data: { task_id: 'systask_new' } },
+  })
+  renderExport()
+  await user.click(screen.getByRole('button', { name: 'Export logs' }))
+  await user.click(screen.getByRole('button', { name: 'Deselect all' }))
+  await user.selectOptions(
+    screen.getByRole('combobox', { name: 'Export type' }),
+    'statistics'
+  )
+  expect(
+    screen.queryByRole('checkbox', { name: /^Channel ID/ })
+  ).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole('checkbox', { name: /^User ID/ })
+  ).not.toBeInTheDocument()
+  await user.selectOptions(
+    screen.getByRole('combobox', { name: 'Time granularity' }),
+    'hour'
+  )
+  await user.selectOptions(
+    screen.getByRole('combobox', { name: 'Time zone' }),
+    'Asia/Shanghai'
+  )
+  await user.click(screen.getByRole('checkbox', { name: 'Group' }))
+  await user.click(screen.getByRole('button', { name: 'Create export' }))
+  await waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      '/api/log/export',
+      expect.objectContaining({
+        mode: 'statistics',
+        granularity: 'hour',
+        timezone: 'Asia/Shanghai',
+        group_by: ['model_name', 'group'],
+      })
+    )
+  )
+  await user.selectOptions(
+    screen.getByRole('combobox', { name: 'Time granularity' }),
+    'all'
+  )
+  expect(screen.getByRole('combobox', { name: 'Time zone' })).toBeDisabled()
+  await user.selectOptions(
+    screen.getByRole('combobox', { name: 'Export type' }),
+    'details'
+  )
+  expect(screen.getByRole('button', { name: 'Create export' })).toBeDisabled()
+})
+
+test('administrator statistics can group by user and channel', async () => {
+  const user = userEvent.setup()
+  vi.spyOn(api, 'get').mockResolvedValue({ data: { success: true, data: [] } })
+  const post = vi.spyOn(api, 'post').mockResolvedValue({
+    data: { success: true, data: { task_id: 'systask_new' } },
+  })
+  renderExport(true)
+  await user.click(screen.getByRole('button', { name: 'Export logs' }))
+  await user.selectOptions(
+    screen.getByRole('combobox', { name: 'Export type' }),
+    'statistics'
+  )
+  await user.click(screen.getByRole('checkbox', { name: 'User ID' }))
+  await user.click(screen.getByRole('checkbox', { name: 'Channel ID' }))
+  await user.click(screen.getByRole('button', { name: 'Create export' }))
+  await waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      '/api/log/export',
+      expect.objectContaining({
+        scope: 'all',
+        mode: 'statistics',
+        group_by: ['model_name', 'user_id', 'channel'],
+      })
+    )
+  )
 })

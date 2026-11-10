@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 
 	"github.com/QuantumNous/new-api/common"
 )
@@ -67,9 +68,9 @@ func OpenLogExportRows(ctx context.Context, filter LogExportFilter, fields []str
 }
 
 // LogExportColumns is shared by request validation and the database projection.
-// Metadata blobs and privileged diagnostics are deliberately not exportable.
+// Full metadata blobs and privileged diagnostics are deliberately not exportable.
 func LogExportColumns(fields []string, self bool) ([]string, error) {
-	if len(fields) == 0 || len(fields) > 18 {
+	if len(fields) == 0 || len(fields) > 64 {
 		return nil, errors.New("select valid export fields")
 	}
 	columns := make([]string, 0, len(fields))
@@ -80,9 +81,11 @@ func LogExportColumns(fields []string, self bool) ([]string, error) {
 		}
 		seen[field] = true
 		switch field {
-		case "client_request_id":
-			columns = append(columns, "other")
-		case "created_at", "request_id", "upstream_request_id", "type", "model_name", "token_name", "prompt_tokens", "completion_tokens", "quota", "use_time", "is_stream", "group", "ip", "content":
+		case "client_request_id", "billing_source", "billing_unit", "billing_tokens", "billing_prices", "billing_expression", "billing_quota_per_unit", "subscription_consumed",
+			"input_tokens_total", "cache_read_tokens", "cache_write_tokens", "cache_write_tokens_5m", "cache_write_tokens_1h", "image_input_tokens", "image_output_tokens", "audio_input_tokens", "audio_output_tokens",
+			"billing_input_tokens", "billing_output_tokens", "amount_usd", "input_amount_usd", "output_amount_usd", "cache_read_amount_usd", "cache_write_amount_usd", "image_input_amount_usd", "image_output_amount_usd", "audio_input_amount_usd", "audio_output_amount_usd", "other_amount_usd":
+			columns = append(columns, "other", "quota", "prompt_tokens", "completion_tokens")
+		case "created_at", "request_id", "upstream_request_id", "type", "model_name", "token_name", "token_id", "prompt_tokens", "completion_tokens", "quota", "use_time", "is_stream", "group", "ip", "content":
 			columns = append(columns, field)
 		case "user_id", "username", "channel":
 			if self {
@@ -96,5 +99,6 @@ func LogExportColumns(fields []string, self bool) ([]string, error) {
 			return nil, errors.New("invalid export field")
 		}
 	}
-	return columns, nil
+	slices.Sort(columns)
+	return slices.Compact(columns), nil
 }

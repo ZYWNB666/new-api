@@ -34,9 +34,38 @@ export const LOG_EXPORT_FIELDS = [
   { key: 'type', label: 'Type' },
   { key: 'model_name', label: 'Model Name' },
   { key: 'token_name', label: 'Token Name' },
+  { key: 'token_id', label: 'Token ID' },
   { key: 'prompt_tokens', label: 'Input Tokens' },
   { key: 'completion_tokens', label: 'Output Tokens' },
   { key: 'quota', label: 'Quota' },
+  { key: 'input_tokens_total', label: 'Total input tokens' },
+  { key: 'cache_read_tokens', label: 'Cache read tokens' },
+  { key: 'cache_write_tokens', label: 'Cache write tokens' },
+  { key: 'cache_write_tokens_5m', label: 'Cache write tokens (5m)' },
+  { key: 'cache_write_tokens_1h', label: 'Cache write tokens (1h)' },
+  { key: 'image_input_tokens', label: 'Image input tokens' },
+  { key: 'image_output_tokens', label: 'Image output tokens' },
+  { key: 'audio_input_tokens', label: 'Audio input tokens' },
+  { key: 'audio_output_tokens', label: 'Audio output tokens' },
+  { key: 'billing_input_tokens', label: 'Billable input tokens' },
+  { key: 'billing_output_tokens', label: 'Billable output tokens' },
+  { key: 'amount_usd', label: 'Total amount (USD)' },
+  { key: 'input_amount_usd', label: 'Input amount (USD)' },
+  { key: 'output_amount_usd', label: 'Output amount (USD)' },
+  { key: 'cache_read_amount_usd', label: 'Cache read amount (USD)' },
+  { key: 'cache_write_amount_usd', label: 'Cache write amount (USD)' },
+  { key: 'image_input_amount_usd', label: 'Image input amount (USD)' },
+  { key: 'image_output_amount_usd', label: 'Image output amount (USD)' },
+  { key: 'audio_input_amount_usd', label: 'Audio input amount (USD)' },
+  { key: 'audio_output_amount_usd', label: 'Audio output amount (USD)' },
+  { key: 'other_amount_usd', label: 'Other charges and rounding (USD)' },
+  { key: 'billing_source', label: 'Billing source' },
+  { key: 'billing_unit', label: 'Billing unit' },
+  { key: 'billing_quota_per_unit', label: 'Quota units per USD' },
+  { key: 'billing_tokens', label: 'Billing token details (JSON)' },
+  { key: 'billing_prices', label: 'Effective token prices (USD per 1M, JSON)' },
+  { key: 'billing_expression', label: 'Historical billing expression' },
+  { key: 'subscription_consumed', label: 'Subscription usage (quota)' },
   { key: 'use_time', label: 'Duration' },
   { key: 'is_stream', label: 'Stream' },
   { key: 'group', label: 'Group' },
@@ -47,7 +76,23 @@ export const LOG_EXPORT_FIELDS = [
   { key: 'channel', label: 'Channel ID', admin: true },
 ] satisfies Array<{ key: string; label: string; admin?: boolean }>
 
-export type LogExportTask = {
+export const LOG_EXPORT_DIMENSIONS = [
+  { key: 'model_name', label: 'Model Name' },
+  { key: 'user_id', label: 'User ID', admin: true },
+  { key: 'channel', label: 'Channel ID', admin: true },
+  { key: 'group', label: 'Group' },
+  { key: 'token_id', label: 'Token ID' },
+  { key: 'token_name', label: 'Token Name' },
+] satisfies Array<{ key: string; label: string; admin?: boolean }>
+
+export type LogExportOptions = {
+  mode: 'details' | 'statistics'
+  granularity?: 'hour' | 'day' | 'month' | 'all'
+  timezone?: string
+  group_by?: string[]
+}
+
+export type LogExportTask = Partial<LogExportOptions> & {
   task_id: string
   status: 'pending' | 'running' | 'succeeded' | 'failed'
   processed: number
@@ -66,13 +111,15 @@ export async function listLogExports(): Promise<LogExportTask[]> {
 export async function createLogExport(
   params: GetLogsParams,
   fields: string[],
-  isAdmin: boolean
+  isAdmin: boolean,
+  options: LogExportOptions = { mode: 'details' }
 ): Promise<LogExportTask> {
   const { p: _page, page_size: _pageSize, ...filter } = params
   const response = await api.post('/api/log/export', {
     scope: isAdmin ? 'all' : 'self',
     filter,
     fields,
+    ...options,
   })
   return requireServerSuccess(response.data).data
 }

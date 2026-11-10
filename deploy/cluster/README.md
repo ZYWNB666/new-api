@@ -22,7 +22,8 @@ master 负责数据库迁移、后台任务调度、CSV 导出生成；slave 只
 | `common.sh` | 集群拓扑、版本常量、SSH/scp 封装 |
 | `prepare-node.sh` | slave 基础环境：supervisor、nfs-common、newapi 用户、目录 |
 | `deploy-slave.sh` | 主部署流程：拉包 → 校验 → 装配置 → 启动 → 验证 → 失败回滚 |
-| `verify-slave.sh` | 单节点验证（进程/摘要/版本/资源/401/JSON 404/指标） |
+| `restart-slave.sh` | 滚动重启（配置类变更，不换二进制）：上传 start.sh → 排空 → 重启 → 验证 |
+| `verify-slave.sh` | 单节点验证（进程/摘要/版本/资源/401/JSON 404/指标/心跳） |
 | `verify-cluster.sh` | 全集群验证（含 Prometheus targets 与公网健康） |
 | `attach-monitoring.sh` | 把 slave 指标接入 master 的 Prometheus |
 | `rollback-slave.sh` | 单节点回滚到部署前二进制 |
@@ -45,9 +46,25 @@ master 负责数据库迁移、后台任务调度、CSV 导出生成；slave 只
 # 4. 全集群验证
 ./verify-cluster.sh
 
+# 配置类变更后滚动重启（不换二进制）
+./restart-slave.sh all              # 先排空再逐台重启
+./restart-slave.sh all --no-drain   # 跳过排空，直接重启（会中断在途流式请求）
+
 # 回滚单台
 ./rollback-slave.sh 47.100.175.171 newapi-2
 ```
+
+## start.sh 必须与 master 一致的行
+
+`start.sh` 里有三处容易在新增节点时漏掉，漏掉不会报错，只会静默丢功能：
+
+| 行 | 作用 | 漏掉的后果 |
+|---|---|---|
+| `export LOG_REQUEST_HEADERS=true` | 客户端请求头日志 | 该节点完全不打印请求头；ALB 分流后表现为"某些请求/模型没有请求头" |
+| `export METRICS_ADDR=...` | 指标监听地址 | slave 需绑自己内网 IP，否则 master 抓不到该节点指标 |
+| `. /opt/new-api/env` | 加载 DSN/Redis/密钥 | 服务直接起不来 |
+
+这些行来自 master 的 `start.sh`，不在 `env` 文件里，复制 env 不会带上。
 
 ## 关键约定
 
@@ -79,13 +96,16 @@ slave 与 master 相同：
 
 ## 待办
 
-- **NFS 共享导出目录**：`LOG_EXPORT_DIR=/var/lib/new-api/log-exports` 需要所有
-  执行/下载节点挂同一目录，否则 slave 无法下载 master 生成的 CSV。master 当前
-  只导出了 `172.16.0.76`，需追加 `172.16.0.76`（newapi-3）、`172.16.0.77`、
-  `172.16.0.78` 后在各 slave 挂载。
+- **NFS 共享导出目录已完成（2026-11-10）**：三个 slave 均已通过 NFSv4.2 只读挂载 master 的 `/var/lib/new-api/log-exports`，通过 fstab/systemd automount 持久化。真实 `newapi` 用户读取 0600 合成 CSV 成功、写入被拒绝；不再需要新增挂载。
 - **ALB 接入**：在阿里云控制台把三个 ECS 加入服务器组
   `sgp-p9hx08fv66eydekk7h`（HTTP, Wrr）才会分流真实流量。加入前确认
   `GLOBAL_WEB_RATE_LIMIT` 已放宽（master 为 600/60s），否则健康检查会被 429
   判不健康。
 - **master 防火墙**：`newapi-metrics-firewall.service` 单元文件已丢失，
   nftables 现无 9000 端口访问控制，需重建。
+
+## 当前发布（2026-11-10，Asia/Shanghai）
+
+- 四节点版本统一为 `v1.0.0-rc.39-local.20261110105838.log-export-month.9d85a8069`，二进制 SHA-256 `fe62451a40c0acc6b6113e2ab5a8b97d6d55511d9d713bda52e1f4e4471b208e`。
+- 发布包包含 31 天明细及 366 天统计导出；各节点保留原环境文件和启动脚本。完整验证及回退记录见 `.agents/features/15-usage-log-export.md`。
+- 本次回滚使用每个节点 `/opt/new-api/releases/v1.0.0-rc.39-local.20261110105838.log-export-month.9d85a8069/rollback.py`，备份为同目录 `new-api-before-upgrade`；不要用仅搜索 `new-api.bak.*` 的旧回滚脚本替代本次发布回退。

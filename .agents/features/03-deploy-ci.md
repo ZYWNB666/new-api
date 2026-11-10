@@ -36,6 +36,7 @@
 | 2026-11-04 | `4138bffd8`（发布基线） | 部署 newapi-2 slave，共享数据库/Redis/密钥、只读 CSV 存储和监控；等待 ALB 加入 |
 | 2026-11-04 | `370617d22`（部署记录基线） | 用户接入 ALB 后验证真实模型请求与成功返回，更新双机部署状态 |
 | 2026-11-05 | `2896db5f9` | 双节点逐台发布 API 协议完整性修复，排空检查与自动回滚，配置保持不变 |
+| 2026-11-10 | 工作区（基于 `4e53ab720`） | 四节点部署日志明细/统计导出，补齐只读共享存储并更新默认发布版本 |
 
 ## 注意事项
 
@@ -79,5 +80,11 @@
 
 ### 待办（四节点后）
 
-- **NFS 共享导出目录未配置**：`LOG_EXPORT_DIR=/var/lib/new-api/log-exports` 已写入三台 env，但 master 的 `/etc/exports.d/newapi.exports` 仍只导出给 `172.16.0.76`，且三台尚未挂载。缺此项时 slave 无法下载 master 生成的 CSV（功能 15 要求所有执行/下载节点挂同一目录）。需要：追加 `172.16.0.76`（newapi-3）、`172.16.0.77`、`172.16.0.78` 导出规则并 `exportfs -r`，再在三台按 `_netdev,nofail,x-systemd.automount` 挂载，并以 `newapi` 用户实测可读、写入被拒绝。
+- **NFS 共享导出目录已完成（2026-11-10）**：master 已为三台 slave 配置只读导出，slave 通过持久化 NFSv4.2/systemd automount 挂载；真实服务用户读取 0600 合成 CSV 成功、写入被拒绝。部署和回退记录见 [功能 15](15-usage-log-export.md)。
 - **master 指标防火墙单元已丢失**：`newapi-metrics-firewall.service` 与 `/etc/newapi-metrics.nft` 在 master 上均已不存在，nftables 现无 9000 端口访问控制，四台的指标端口实际只依赖安全组。需要重建该单元，仅放行 master 与本机访问 9000。
+
+### 四节点日志导出版本发布（2026-11-10，Asia/Shanghai）
+
+- 四台统一发布 `v1.0.0-rc.39-local.20261110105838.log-export-month.9d85a8069`，运行中二进制 SHA-256 `fe62451a40c0acc6b6113e2ab5a8b97d6d55511d9d713bda52e1f4e4471b208e`。逐台备份、原子替换、重启及校验，失败自动回滚；应用环境文件、启动脚本和 ALB 配置保持原值。
+- 补齐三台 slave 只读 NFS 导出存储；四节点版本、摘要、心跳、Prometheus、公网资源和匿名导出接口检查通过。临时导出任务及合成 CSV 探针已清理。完整包、源码来源、验证及回滚路径见 [功能 15](15-usage-log-export.md)。
+- `deploy/cluster/common.sh` 默认版本/摘要更新到本次发布；SOURCE_COMMIT 仅表示构建基线，精确源码以发布包的工作区清单和差异为准。

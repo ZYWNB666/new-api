@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -15,17 +16,22 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/shopspring/decimal"
 )
 
 const LogExportTaskType = "log_export"
 const LogExportRetention = 24 * time.Hour
 
 type LogExportPayload struct {
-	OwnerID int                   `json:"owner_id"`
-	Role    int                   `json:"role"`
-	Self    bool                  `json:"self"`
-	Filter  model.LogExportFilter `json:"filter"`
-	Fields  []string              `json:"fields"`
+	OwnerID     int                   `json:"owner_id"`
+	Role        int                   `json:"role"`
+	Self        bool                  `json:"self"`
+	Filter      model.LogExportFilter `json:"filter"`
+	Fields      []string              `json:"fields"`
+	Mode        string                `json:"mode,omitempty"`
+	Granularity string                `json:"granularity,omitempty"`
+	Timezone    string                `json:"timezone,omitempty"`
+	GroupBy     []string              `json:"group_by,omitempty"`
 }
 
 type LogExportState struct {
@@ -55,15 +61,52 @@ func ValidateLogExport(payload *LogExportPayload) error {
 	if payload.OwnerID <= 0 || (!payload.Self && payload.Role < common.RoleAdminUser) {
 		return errors.New("invalid export scope")
 	}
-	if _, err := model.LogExportColumns(payload.Fields, payload.Self); err != nil {
+	if payload.Mode == "" {
+		payload.Mode = "details"
+	}
+	if payload.Mode != "details" && payload.Mode != "statistics" {
+		return errors.New("invalid export mode")
+	}
+	if payload.Mode == "statistics" {
+		if !slices.Contains([]string{"hour", "day", "month", "all"}, payload.Granularity) {
+			return errors.New("invalid summary granularity")
+		}
+		if payload.Timezone == "" {
+			payload.Timezone = "UTC"
+		}
+		if len(payload.Timezone) > 64 {
+			return errors.New("invalid summary timezone")
+		}
+		if _, err := time.LoadLocation(payload.Timezone); err != nil {
+			return errors.New("invalid summary timezone")
+		}
+		if len(payload.GroupBy) > 6 {
+			return errors.New("too many summary dimensions")
+		}
+		seen := map[string]bool{}
+		for _, field := range payload.GroupBy {
+			if !slices.Contains([]string{"model_name", "user_id", "channel", "group", "token_name", "token_id"}, field) || seen[field] {
+				return errors.New("invalid summary dimension")
+			}
+			if payload.Self && (field == "user_id" || field == "channel") {
+				return errors.New("admin summary dimension is not allowed")
+			}
+			seen[field] = true
+		}
+		payload.Fields = logExportSummaryHeaders(*payload)
+	} else if _, err := model.LogExportColumns(payload.Fields, payload.Self); err != nil {
 		return err
 	}
 	f := &payload.Filter
 	// The log page defaults its end time to now + 1 hour. Freeze the export
 	// boundary at creation instead of including future traffic.
 	f.EndTimestamp = min(f.EndTimestamp, common.GetTimestamp())
-	if f.StartTimestamp <= 0 || f.EndTimestamp < f.StartTimestamp || f.EndTimestamp-f.StartTimestamp > 7*86400 {
-		return errors.New("export requires a past time range of at most 7 days")
+	maxDays := 31
+	if payload.Mode == "statistics" {
+		maxDays = 366
+	}
+	if f.StartTimestamp <= 0 || f.EndTimestamp < f.StartTimestamp || f.EndTimestamp-f.StartTimestamp > int64(maxDays)*86400 {
+		return fmt.Errorf("export requires a past time range of at most %d days", maxDays)
 	}
 	if f.Type < model.LogTypeUnknown || f.Type > model.LogTypeLogin || f.Channel < 0 {
 		return errors.New("invalid export filters")
@@ -189,24 +232,50 @@ func generateLogExport(ctx context.Context, task *model.SystemTask, runnerID str
 	maxBytes := int64(min(10240, max(1, common.GetEnvOrDefault("LOG_EXPORT_MAX_MB", 1024)))) * 1024 * 1024
 	writer := csv.NewWriter(&logExportWriter{file: file, remaining: maxBytes - 3})
 	writer.UseCRLF = true
-	if err = writer.Write(payload.Fields); err != nil {
+	headers := payload.Fields
+	readFields := payload.Fields
+	if payload.Mode == "statistics" {
+		headers = logExportSummaryHeaders(payload)
+		readFields = []string{"created_at", "type", "model_name", "token_name", "group", "prompt_tokens", "completion_tokens", "quota", "use_time", "amount_usd", "token_id"}
+		if !payload.Self {
+			readFields = append(readFields, "user_id", "channel")
+		}
+	}
+	if err = writer.Write(headers); err != nil {
 		return state, err
 	}
-	rows, err := model.OpenLogExportRows(ctx, payload.Filter, payload.Fields)
+	rows, err := model.OpenLogExportRows(ctx, payload.Filter, readFields)
 	if err != nil {
 		return state, err
 	}
 	defer rows.Close()
+	summaries := map[string]*logExportSummary{}
+	priceCache := map[logExportPriceKey]map[string]decimal.Decimal{}
+	location, _ := time.LoadLocation(payload.Timezone)
+	scanned := int64(0)
 	for rows.Next() {
 		if err = ctx.Err(); err != nil {
 			return state, err
 		}
-		if state.Processed >= int64(maxRows) {
+		if scanned >= int64(maxRows) {
 			return state, errors.New("export row limit exceeded; narrow the filters")
 		}
 		var log model.Log
 		if err = model.LOG_DB.ScanRows(rows, &log); err != nil {
 			return state, err
+		}
+		scanned++
+		values := logExportBillingValues(log, priceCache)
+		if payload.Mode == "statistics" {
+			if err = addLogExportSummary(summaries, payload, location, log, values); err != nil {
+				return state, err
+			}
+			if scanned%500 == 0 {
+				if err = model.UpdateSystemTaskState(task.TaskID, runnerID, state); err != nil {
+					return state, err
+				}
+			}
+			continue
 		}
 		record := make([]string, len(payload.Fields))
 		for i, field := range payload.Fields {
@@ -230,6 +299,8 @@ func generateLogExport(ctx context.Context, task *model.SystemTask, runnerID str
 				value = log.ModelName
 			case "token_name":
 				value = log.TokenName
+			case "token_id":
+				value = strconv.Itoa(log.TokenId)
 			case "prompt_tokens":
 				value = strconv.Itoa(log.PromptTokens)
 			case "completion_tokens":
@@ -252,13 +323,15 @@ func generateLogExport(ctx context.Context, task *model.SystemTask, runnerID str
 				value = log.Username
 			case "channel":
 				value = strconv.Itoa(log.ChannelId)
+			default:
+				value = values[field]
 			}
-			// CSV quoting alone does not prevent spreadsheet formula execution.
-			trimmed := strings.TrimLeftFunc(value, unicode.IsSpace)
-			if strings.HasPrefix(value, "\t") || strings.HasPrefix(value, "\r") || strings.HasPrefix(value, "\n") || (len(trimmed) > 0 && strings.ContainsRune("=+-@", rune(trimmed[0]))) {
-				value = "'" + value
+			if strings.HasSuffix(field, "_usd") {
+				// Generated decimal amounts may be negative rounding adjustments.
+				record[i] = value
+			} else {
+				record[i] = safeLogExportCell(value)
 			}
-			record[i] = value
 		}
 		if err = writer.Write(record); err != nil {
 			return state, err
@@ -281,6 +354,22 @@ func generateLogExport(ctx context.Context, task *model.SystemTask, runnerID str
 	}
 	if err = rows.Err(); err != nil {
 		return state, err
+	}
+	if payload.Mode == "statistics" {
+		keys := make([]string, 0, len(summaries))
+		for key := range summaries {
+			keys = append(keys, key)
+		}
+		slices.Sort(keys)
+		for _, key := range keys {
+			if err = ctx.Err(); err != nil {
+				return state, err
+			}
+			if err = writer.Write(summaries[key].record()); err != nil {
+				return state, err
+			}
+			state.Processed++
+		}
 	}
 	writer.Flush()
 	if err = writer.Error(); err != nil {
@@ -315,4 +404,13 @@ func StartLogExport(payload LogExportPayload) (*model.SystemTask, error) {
 		return nil, fmt.Errorf("an export is already pending or running; try again later")
 	}
 	return task, nil
+}
+
+// CSV quoting alone does not prevent spreadsheet formula execution.
+func safeLogExportCell(value string) string {
+	trimmed := strings.TrimLeftFunc(value, unicode.IsSpace)
+	if strings.HasPrefix(value, "\t") || strings.HasPrefix(value, "\r") || strings.HasPrefix(value, "\n") || (len(trimmed) > 0 && strings.ContainsRune("=+-@", rune(trimmed[0]))) {
+		return "'" + value
+	}
+	return value
 }
